@@ -1,0 +1,263 @@
+================================================================================
+API ARDOISE — Tablas MySQL para Hostinger
+================================================================================
+Orden: ejecuta los CREATE en este orden (respeta foreign keys).
+
+RECOMENDADO: en el servidor usa `php artisan migrate --force` en lugar de
+crear tablas a mano. Este archivo es solo referencia / respaldo.
+
+Charset sugerido: utf8mb4 / utf8mb4_unicode_ci
+================================================================================
+
+
+--------------------------------------------------------------------------------
+0) migrations  (Laravel registra aquí qué migraciones ya corrieron)
+--------------------------------------------------------------------------------
+CREATE TABLE `migrations` (
+  `id` int UNSIGNED NOT NULL AUTO_INCREMENT,
+  `migration` varchar(255) NOT NULL,
+  `batch` int NOT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+--------------------------------------------------------------------------------
+1) users
+--------------------------------------------------------------------------------
+CREATE TABLE `users` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `name` varchar(255) NOT NULL,
+  `email` varchar(255) NOT NULL,
+  `email_verified_at` timestamp NULL DEFAULT NULL,
+  `password` varchar(255) NOT NULL,
+  `stripe_customer_id` varchar(255) NULL DEFAULT NULL,
+  `remember_token` varchar(100) NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `users_email_unique` (`email`),
+  KEY `users_stripe_customer_id_index` (`stripe_customer_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+--------------------------------------------------------------------------------
+2) password_reset_tokens
+--------------------------------------------------------------------------------
+CREATE TABLE `password_reset_tokens` (
+  `email` varchar(255) NOT NULL,
+  `token` varchar(255) NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`email`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+--------------------------------------------------------------------------------
+3) sessions
+--------------------------------------------------------------------------------
+CREATE TABLE `sessions` (
+  `id` varchar(255) NOT NULL,
+  `user_id` bigint UNSIGNED NULL DEFAULT NULL,
+  `ip_address` varchar(45) NULL DEFAULT NULL,
+  `user_agent` text NULL,
+  `payload` longtext NOT NULL,
+  `last_activity` int NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `sessions_user_id_index` (`user_id`),
+  KEY `sessions_last_activity_index` (`last_activity`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+--------------------------------------------------------------------------------
+4) cache
+--------------------------------------------------------------------------------
+CREATE TABLE `cache` (
+  `key` varchar(255) NOT NULL,
+  `value` mediumtext NOT NULL,
+  `expiration` bigint NOT NULL,
+  PRIMARY KEY (`key`),
+  KEY `cache_expiration_index` (`expiration`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+--------------------------------------------------------------------------------
+5) cache_locks
+--------------------------------------------------------------------------------
+CREATE TABLE `cache_locks` (
+  `key` varchar(255) NOT NULL,
+  `owner` varchar(255) NOT NULL,
+  `expiration` bigint NOT NULL,
+  PRIMARY KEY (`key`),
+  KEY `cache_locks_expiration_index` (`expiration`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+--------------------------------------------------------------------------------
+6) jobs  (cola database)
+--------------------------------------------------------------------------------
+CREATE TABLE `jobs` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `queue` varchar(255) NOT NULL,
+  `payload` longtext NOT NULL,
+  `attempts` tinyint UNSIGNED NOT NULL,
+  `reserved_at` int UNSIGNED NULL DEFAULT NULL,
+  `available_at` int UNSIGNED NOT NULL,
+  `created_at` int UNSIGNED NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `jobs_queue_index` (`queue`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+--------------------------------------------------------------------------------
+7) job_batches
+--------------------------------------------------------------------------------
+CREATE TABLE `job_batches` (
+  `id` varchar(255) NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `total_jobs` int NOT NULL,
+  `pending_jobs` int NOT NULL,
+  `failed_jobs` int NOT NULL,
+  `failed_job_ids` longtext NOT NULL,
+  `options` mediumtext NULL,
+  `cancelled_at` int NULL DEFAULT NULL,
+  `created_at` int NOT NULL,
+  `finished_at` int NULL DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+--------------------------------------------------------------------------------
+8) failed_jobs
+--------------------------------------------------------------------------------
+CREATE TABLE `failed_jobs` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `uuid` varchar(255) NOT NULL,
+  `connection` text NOT NULL,
+  `queue` text NOT NULL,
+  `payload` longtext NOT NULL,
+  `exception` longtext NOT NULL,
+  `failed_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `failed_jobs_uuid_unique` (`uuid`),
+  KEY `failed_jobs_connection_queue_failed_at_index` (`connection`(191), `queue`(191), `failed_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+--------------------------------------------------------------------------------
+9) personal_access_tokens  (Sanctum Bearer)
+--------------------------------------------------------------------------------
+CREATE TABLE `personal_access_tokens` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tokenable_type` varchar(255) NOT NULL,
+  `tokenable_id` bigint UNSIGNED NOT NULL,
+  `name` text NOT NULL,
+  `token` varchar(64) NOT NULL,
+  `abilities` text NULL,
+  `last_used_at` timestamp NULL DEFAULT NULL,
+  `expires_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `personal_access_tokens_token_unique` (`token`),
+  KEY `personal_access_tokens_tokenable_type_tokenable_id_index` (`tokenable_type`, `tokenable_id`),
+  KEY `personal_access_tokens_expires_at_index` (`expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+--------------------------------------------------------------------------------
+10) subscriptions  (requiere users)
+--------------------------------------------------------------------------------
+CREATE TABLE `subscriptions` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id` bigint UNSIGNED NOT NULL,
+  `stripe_subscription_id` varchar(255) NOT NULL,
+  `stripe_price_id` varchar(255) NOT NULL,
+  `status` varchar(255) NOT NULL,
+  `current_period_end` timestamp NULL DEFAULT NULL,
+  `trial_ends_at` timestamp NULL DEFAULT NULL,
+  `canceled_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `subscriptions_stripe_subscription_id_unique` (`stripe_subscription_id`),
+  KEY `subscriptions_user_id_foreign` (`user_id`),
+  CONSTRAINT `subscriptions_user_id_foreign`
+    FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+--------------------------------------------------------------------------------
+11) payments  (requiere users)
+--------------------------------------------------------------------------------
+CREATE TABLE `payments` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id` bigint UNSIGNED NOT NULL,
+  `stripe_payment_intent_id` varchar(255) NOT NULL,
+  `amount` int UNSIGNED NOT NULL,
+  `currency` varchar(10) NOT NULL,
+  `status` varchar(255) NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `payments_stripe_payment_intent_id_unique` (`stripe_payment_intent_id`),
+  KEY `payments_user_id_foreign` (`user_id`),
+  CONSTRAINT `payments_user_id_foreign`
+    FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+--------------------------------------------------------------------------------
+12) stripe_events  (idempotencia de webhooks)
+--------------------------------------------------------------------------------
+CREATE TABLE `stripe_events` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `stripe_event_id` varchar(255) NOT NULL,
+  `type` varchar(255) NOT NULL,
+  `processed_at` timestamp NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `stripe_events_stripe_event_id_unique` (`stripe_event_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+================================================================================
+RESUMEN (orden de creación)
+================================================================================
+ 0. migrations
+ 1. users
+ 2. password_reset_tokens
+ 3. sessions
+ 4. cache
+ 5. cache_locks
+ 6. jobs
+ 7. job_batches
+ 8. failed_jobs
+ 9. personal_access_tokens
+10. subscriptions   ← FK a users
+11. payments        ← FK a users
+12. stripe_events
+
+Si `subscriptions` ya existe sin `trial_ends_at`, ejecuta solo:
+
+ALTER TABLE `subscriptions`
+  ADD COLUMN `trial_ends_at` timestamp NULL DEFAULT NULL
+  AFTER `current_period_end`;
+
+================================================================================
+NOTA SI USAS php artisan migrate
+================================================================================
+Si creas las tablas a mano, Laravel no sabrá que las migraciones ya corrieron.
+En ese caso, o bien:
+
+  A) NO crees tablas a mano y solo ejecuta:
+     php artisan migrate --force
+
+  B) Si ya las creaste a mano, inserta filas en `migrations` con los nombres
+     de cada archivo de database/migrations, por ejemplo:
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_08_01_175500_add_trial_ends_at_to_subscriptions_table', 1);
+
+================================================================================
+FIN
+================================================================================
