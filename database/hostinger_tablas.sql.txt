@@ -220,11 +220,62 @@ CREATE TABLE `stripe_events` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
+--------------------------------------------------------------------------------
+1b) negocios  (empresa del usuario maestro; 1:1 con users)
+--------------------------------------------------------------------------------
+CREATE TABLE `negocios` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id` bigint UNSIGNED NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `phone` varchar(30) NOT NULL,
+  `needs_invoice` tinyint(1) NOT NULL DEFAULT 0,
+  `rfc` varchar(13) NULL DEFAULT NULL,
+  `legal_name` varchar(255) NULL DEFAULT NULL,
+  `tax_regime` varchar(10) NULL DEFAULT NULL,
+  `tax_zip` varchar(10) NULL DEFAULT NULL,
+  `cfdi_use` varchar(10) NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `negocios_user_id_unique` (`user_id`),
+  CONSTRAINT `negocios_user_id_foreign`
+    FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+--------------------------------------------------------------------------------
+1c) sucursales  (sucursal | bodega; ligadas al negocio)
+--------------------------------------------------------------------------------
+CREATE TABLE `sucursales` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `negocio_id` bigint UNSIGNED NOT NULL,
+  `type` varchar(255) NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `street` varchar(255) NULL DEFAULT NULL,
+  `neighborhood` varchar(255) NULL DEFAULT NULL,
+  `city` varchar(255) NULL DEFAULT NULL,
+  `state` varchar(255) NULL DEFAULT NULL,
+  `postal_code` varchar(20) NULL DEFAULT NULL,
+  `opened_year` smallint UNSIGNED NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `sucursales_negocio_id_foreign` (`negocio_id`),
+  KEY `sucursales_negocio_id_type_index` (`negocio_id`, `type`),
+  KEY `sucursales_negocio_id_is_active_index` (`negocio_id`, `is_active`),
+  CONSTRAINT `sucursales_negocio_id_foreign`
+    FOREIGN KEY (`negocio_id`) REFERENCES `negocios` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
 ================================================================================
 RESUMEN (orden de creación)
 ================================================================================
  0. migrations
  1. users
+ 1b. negocios       ← FK a users (usuario maestro)
+ 1c. sucursales     ← FK a negocios
  2. password_reset_tokens
  3. sessions
  4. cache

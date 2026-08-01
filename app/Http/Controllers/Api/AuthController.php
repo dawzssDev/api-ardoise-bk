@@ -5,32 +5,37 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
 use App\Http\Requests\Auth\RegisterRequest;
+use App\Http\Resources\NegocioResource;
 use App\Http\Resources\UserResource;
 use App\Models\User;
+use App\Services\RegisterService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 
 class AuthController extends Controller
 {
+    public function __construct(
+        private readonly RegisterService $registerService,
+    ) {}
+
     /**
-     * Registrar un nuevo usuario y emitir token Bearer.
+     * Registrar usuario maestro + negocio y emitir token Bearer.
      */
     public function register(RegisterRequest $request): JsonResponse
     {
-        $user = User::create([
-            'name' => $request->validated('name'),
-            'email' => $request->validated('email'),
-            'password' => $request->validated('password'),
-        ]);
+        $result = $this->registerService->register($request->validated());
 
+        $user = $result['user'];
+        $negocio = $result['negocio'];
         $token = $user->createToken('api')->plainTextToken;
 
         return response()->json([
             'success' => true,
-            'message' => 'Usuario registrado correctamente.',
+            'message' => 'Cuenta y negocio creados correctamente.',
             'data' => [
                 'user' => (new UserResource($user))->resolve(),
+                'negocio' => (new NegocioResource($negocio))->resolve(),
                 'token' => $token,
                 'token_type' => 'Bearer',
             ],
@@ -57,6 +62,7 @@ class AuthController extends Controller
         // Evita acumulación de tokens con el mismo nombre
         $user->tokens()->where('name', 'api')->delete();
 
+        $user->load('negocio');
         $token = $user->createToken('api')->plainTextToken;
 
         return response()->json([
@@ -91,11 +97,13 @@ class AuthController extends Controller
      */
     public function me(Request $request): JsonResponse
     {
+        $user = $request->user()->load('negocio');
+
         return response()->json([
             'success' => true,
             'message' => 'ok',
             'data' => [
-                'user' => (new UserResource($request->user()))->resolve(),
+                'user' => (new UserResource($user))->resolve(),
             ],
             'errors' => null,
         ]);

@@ -16,6 +16,10 @@ class UserResource extends JsonResource
             'id' => $this->id,
             'name' => $this->name,
             'email' => $this->email,
+            'negocio' => $this->whenLoaded(
+                'negocio',
+                fn () => (new NegocioResource($this->negocio))->resolve(),
+            ),
             'created_at' => $this->created_at?->toIso8601String(),
         ];
     }

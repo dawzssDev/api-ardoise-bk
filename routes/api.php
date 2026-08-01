@@ -2,10 +2,13 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\HealthController;
+use App\Http\Controllers\Api\NegocioController;
 use App\Http\Controllers\Api\PasswordResetController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\StripeWebhookController;
 use App\Http\Controllers\Api\SubscriptionController;
+use App\Http\Controllers\Api\SucursalController;
+use App\Http\Controllers\Api\UserController;
 use Illuminate\Support\Facades\Route;
 
 // Los límites de throttle se ajustan en RateLimitServiceProvider, no aquí.
@@ -33,6 +36,14 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/auth/me', [AuthController::class, 'me']);
 
+    // Perfil de usuario
+    Route::get('/user', [UserController::class, 'show']);
+    Route::put('/user', [UserController::class, 'update']);
+
+    // Negocio del usuario
+    Route::get('/negocio', [NegocioController::class, 'show']);
+    Route::put('/negocio', [NegocioController::class, 'update']);
+
     Route::post('/payments/intent', [PaymentController::class, 'createIntent']);
     Route::get('/payments', [PaymentController::class, 'index']);
 
@@ -40,4 +51,10 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/subscriptions', [SubscriptionController::class, 'store']);
     Route::get('/subscriptions', [SubscriptionController::class, 'index']);
     Route::delete('/subscriptions/{stripeSubscriptionId}', [SubscriptionController::class, 'destroy']);
+
+    // Sucursales / bodegas del negocio (throttle:api = máx. 60 req/min)
+    Route::get('/sucursales', [SucursalController::class, 'index']);
+    Route::post('/sucursales', [SucursalController::class, 'store']);
+    Route::get('/sucursales/{id}', [SucursalController::class, 'show'])->whereNumber('id');
+    Route::put('/sucursales/{id}', [SucursalController::class, 'update'])->whereNumber('id');
 });
