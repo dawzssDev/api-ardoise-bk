@@ -71,4 +71,15 @@ class SucursalService
 
         return $sucursal->refresh();
     }
+
+    /**
+     * Activar o desactivar una sucursal.
+     */
+    public function setActive(Sucursal $sucursal, bool $isActive): Sucursal
+    {
+        $sucursal->is_active = $isActive;
+        $sucursal->save();
+
+        return $sucursal->refresh();
+    }
 }

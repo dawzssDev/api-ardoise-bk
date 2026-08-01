@@ -269,13 +269,72 @@ CREATE TABLE `sucursales` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
+--------------------------------------------------------------------------------
+1d) categoria_insumos  (catálogo de categorías por negocio; solo nombre)
+--------------------------------------------------------------------------------
+CREATE TABLE `categoria_insumos` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `negocio_id` bigint UNSIGNED NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `categoria_insumos_negocio_id_name_unique` (`negocio_id`, `name`),
+  KEY `categoria_insumos_negocio_id_foreign` (`negocio_id`),
+  CONSTRAINT `categoria_insumos_negocio_id_foreign`
+    FOREIGN KEY (`negocio_id`) REFERENCES `negocios` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+--------------------------------------------------------------------------------
+1e) insumos  (ligados al negocio + categoría; auditoría created_by / updated_by)
+--------------------------------------------------------------------------------
+CREATE TABLE `insumos` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `negocio_id` bigint UNSIGNED NOT NULL,
+  `categoria_insumo_id` bigint UNSIGNED NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `status_insumo` tinyint(1) NOT NULL DEFAULT 1,
+  `created_by` bigint UNSIGNED NOT NULL,
+  `updated_by` bigint UNSIGNED NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `insumos_negocio_id_name_unique` (`negocio_id`, `name`),
+  KEY `insumos_negocio_id_foreign` (`negocio_id`),
+  KEY `insumos_categoria_insumo_id_foreign` (`categoria_insumo_id`),
+  KEY `insumos_created_by_foreign` (`created_by`),
+  KEY `insumos_updated_by_foreign` (`updated_by`),
+  KEY `insumos_negocio_id_status_insumo_index` (`negocio_id`, `status_insumo`),
+  KEY `insumos_negocio_id_categoria_insumo_id_index` (`negocio_id`, `categoria_insumo_id`),
+  CONSTRAINT `insumos_negocio_id_foreign`
+    FOREIGN KEY (`negocio_id`) REFERENCES `negocios` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `insumos_categoria_insumo_id_foreign`
+    FOREIGN KEY (`categoria_insumo_id`) REFERENCES `categoria_insumos` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `insumos_created_by_foreign`
+    FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `insumos_updated_by_foreign`
+    FOREIGN KEY (`updated_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Si `insumos` ya existe SIN categoria_insumo_id (tabla vacía o puedes borrarla):
+-- ALTER TABLE `insumos`
+--   ADD COLUMN `categoria_insumo_id` bigint UNSIGNED NOT NULL AFTER `negocio_id`,
+--   ADD KEY `insumos_categoria_insumo_id_foreign` (`categoria_insumo_id`),
+--   ADD KEY `insumos_negocio_id_categoria_insumo_id_index` (`negocio_id`, `categoria_insumo_id`),
+--   ADD CONSTRAINT `insumos_categoria_insumo_id_foreign`
+--     FOREIGN KEY (`categoria_insumo_id`) REFERENCES `categoria_insumos` (`id`) ON DELETE RESTRICT;
+
+
 ================================================================================
 RESUMEN (orden de creación)
 ================================================================================
  0. migrations
  1. users
- 1b. negocios       ← FK a users (usuario maestro)
- 1c. sucursales     ← FK a negocios
+ 1b. negocios           ← FK a users (usuario maestro)
+ 1c. sucursales         ← FK a negocios
+ 1d. categoria_insumos  ← FK a negocios
+ 1e. insumos            ← FK a negocios + categoria_insumos + users
  2. password_reset_tokens
  3. sessions
  4. cache

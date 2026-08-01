@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Sucursal\CreateSucursalRequest;
+use App\Http\Requests\Sucursal\ToggleSucursalActiveRequest;
 use App\Http\Requests\Sucursal\UpdateSucursalRequest;
 use App\Http\Resources\SucursalResource;
 use App\Services\SucursalService;
@@ -129,6 +130,38 @@ class SucursalController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Sucursal actualizada correctamente.',
+            'data' => [
+                'sucursal' => (new SucursalResource($sucursal))->resolve(),
+            ],
+            'errors' => null,
+        ]);
+    }
+
+    /**
+     * Activar o desactivar una sucursal del negocio del usuario.
+     */
+    public function setActive(ToggleSucursalActiveRequest $request, int $id): JsonResponse
+    {
+        try {
+            $negocio = $this->sucursales->negocioForUser($request->user());
+        } catch (HttpException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'data' => null,
+                'errors' => null,
+            ], $e->getStatusCode());
+        }
+
+        $sucursal = $this->sucursales->findForNegocio($negocio, $id);
+        $isActive = (bool) $request->validated('is_active');
+        $sucursal = $this->sucursales->setActive($sucursal, $isActive);
+
+        return response()->json([
+            'success' => true,
+            'message' => $isActive
+                ? 'Sucursal activada correctamente.'
+                : 'Sucursal desactivada correctamente.',
             'data' => [
                 'sucursal' => (new SucursalResource($sucursal))->resolve(),
             ],

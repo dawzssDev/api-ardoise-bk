@@ -38,4 +38,14 @@ class Negocio extends Model
     {
         return $this->hasMany(Sucursal::class);
     }
+
+    public function categoriaInsumos(): HasMany
+    {
+        return $this->hasMany(CategoriaInsumo::class);
+    }
+
+    public function insumos(): HasMany
+    {
+        return $this->hasMany(Insumo::class);
+    }
 }

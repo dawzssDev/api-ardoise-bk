@@ -1,7 +1,9 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\CategoriaInsumoController;
 use App\Http\Controllers\Api\HealthController;
+use App\Http\Controllers\Api\InsumoController;
 use App\Http\Controllers\Api\NegocioController;
 use App\Http\Controllers\Api\PasswordResetController;
 use App\Http\Controllers\Api\PaymentController;
@@ -57,4 +59,19 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/sucursales', [SucursalController::class, 'store']);
     Route::get('/sucursales/{id}', [SucursalController::class, 'show'])->whereNumber('id');
     Route::put('/sucursales/{id}', [SucursalController::class, 'update'])->whereNumber('id');
+    Route::put('/sucursales/{id}/activa', [SucursalController::class, 'setActive'])->whereNumber('id');
+
+    // Categorías de insumos del negocio (throttle:api = máx. 60 req/min)
+    Route::get('/categoria-insumos', [CategoriaInsumoController::class, 'index']);
+    Route::post('/categoria-insumos', [CategoriaInsumoController::class, 'store']);
+    Route::get('/categoria-insumos/{id}', [CategoriaInsumoController::class, 'show'])->whereNumber('id');
+    Route::put('/categoria-insumos/{id}', [CategoriaInsumoController::class, 'update'])->whereNumber('id');
+    Route::delete('/categoria-insumos/{id}', [CategoriaInsumoController::class, 'destroy'])->whereNumber('id');
+
+    // Insumos del negocio (throttle:api = máx. 60 req/min)
+    Route::get('/insumos', [InsumoController::class, 'index']);
+    Route::post('/insumos', [InsumoController::class, 'store']);
+    Route::get('/insumos/{id}', [InsumoController::class, 'show'])->whereNumber('id');
+    Route::put('/insumos/{id}', [InsumoController::class, 'update'])->whereNumber('id');
+    Route::put('/insumos/{id}/status', [InsumoController::class, 'setStatus'])->whereNumber('id');
 });

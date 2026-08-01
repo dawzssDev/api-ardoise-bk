@@ -13,6 +13,52 @@ class UpdateSucursalRequest extends FormRequest
         return true;
     }
 
+    protected function prepareForValidation(): void
+    {
+        $aliases = [
+            'type' => ['tipo'],
+            'name' => ['nombre'],
+            'is_active' => ['activa', 'active'],
+            'street' => ['calle'],
+            'neighborhood' => ['colonia', 'colonia_barrio'],
+            'city' => ['ciudad'],
+            'state' => ['estado'],
+            'postal_code' => ['codigo_postal', 'cp', 'zip'],
+            'opened_year' => ['anio_apertura', 'año_apertura', 'openedYear'],
+        ];
+
+        $merge = [];
+
+        foreach ($aliases as $field => $keys) {
+            if ($this->exists($field)) {
+                continue;
+            }
+
+            foreach ($keys as $alias) {
+                if ($this->exists($alias)) {
+                    $merge[$field] = $this->input($alias);
+                    break;
+                }
+            }
+        }
+
+        if (array_key_exists('is_active', $merge) || $this->exists('is_active')) {
+            $raw = $merge['is_active'] ?? $this->input('is_active');
+            $merge['is_active'] = $this->toBoolean($raw);
+        }
+
+        if (array_key_exists('type', $merge) || $this->exists('type')) {
+            $type = $merge['type'] ?? $this->input('type');
+            if (is_string($type)) {
+                $merge['type'] = strtolower(trim($type));
+            }
+        }
+
+        if ($merge !== []) {
+            $this->merge($merge);
+        }
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -46,5 +92,24 @@ class UpdateSucursalRequest extends FormRequest
             'opened_year.min' => 'El año de apertura no es válido.',
             'opened_year.max' => 'El año de apertura no es válido.',
         ];
+    }
+
+    private function toBoolean(mixed $value): ?bool
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        $normalized = strtolower(trim((string) $value));
+
+        return match ($normalized) {
+            '1', 'true', 'on', 'yes', 'si', 'sí' => true,
+            '0', 'false', 'off', 'no' => false,
+            default => filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE),
+        };
     }
 }
