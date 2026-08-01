@@ -16,10 +16,20 @@ class PaymentController extends Controller
     ) {}
 
     /**
-     * Crear PaymentIntent y devolver client_secret.
+     * Crear PaymentIntent (pago único) o suscripción (plan_id) y devolver client_secret.
+     *
+     * Compatibilidad con el front:
+     * - { amount } → PaymentIntent
+     * - { plan_id: "price_..." } → Suscripción Stripe + client_secret
      */
     public function createIntent(CreatePaymentIntentRequest $request): JsonResponse
     {
+        $planId = $request->validated('plan_id');
+
+        if (is_string($planId) && $planId !== '') {
+            return $this->createSubscriptionFromPlanId($request, $planId);
+        }
+
         try {
             $intent = $this->stripe->createPaymentIntent(
                 $request->user(),
@@ -41,6 +51,64 @@ class PaymentController extends Controller
             'data' => [
                 'client_secret' => $intent->client_secret,
                 'payment_intent_id' => $intent->id,
+            ],
+            'errors' => null,
+        ], 201);
+    }
+
+    /**
+     * Flujo del front de suscripción: POST /payments/intent { plan_id }.
+     */
+    private function createSubscriptionFromPlanId(Request $request, string $planId): JsonResponse
+    {
+        if (! $this->stripe->isConfiguredPriceId($planId)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'El plan_id no está configurado para ARDOISE.',
+                'data' => null,
+                'errors' => ['plan_id' => ['El plan_id no está permitido.']],
+            ], 422);
+        }
+
+        try {
+            $subscription = $this->stripe->createSubscription(
+                $request->user(),
+                $planId,
+            );
+        } catch (ApiErrorException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'data' => null,
+                'errors' => null,
+            ], 502);
+        }
+
+        $secrets = $this->stripe->extractSubscriptionClientSecret($subscription);
+
+        if ($secrets === null) {
+            return response()->json([
+                'success' => false,
+                'message' => 'La suscripción se creó pero Stripe no devolvió client_secret. Revisa el trial o el price en Stripe.',
+                'data' => [
+                    'subscription_id' => $subscription->id,
+                    'status' => $subscription->status,
+                    'client_secret' => null,
+                    'payment_intent_id' => null,
+                ],
+                'errors' => null,
+            ], 502);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Suscripción creada.',
+            'data' => [
+                'client_secret' => $secrets['client_secret'],
+                'payment_intent_id' => $secrets['payment_intent_id'],
+                'subscription_id' => $secrets['subscription_id'],
+                'plan_id' => $planId,
+                'trial_days' => $this->stripe->trialDays(),
             ],
             'errors' => null,
         ], 201);

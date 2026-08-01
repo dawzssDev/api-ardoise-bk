@@ -66,6 +66,81 @@ class StripeTest extends TestCase
             ->assertJsonPath('data.client_secret', 'pi_test_123_secret');
     }
 
+    public function test_create_payment_intent_with_plan_id_creates_subscription(): void
+    {
+        config([
+            'services.stripe.price_prueba' => 'price_1TzhHLQMCZvDbFTHiAqpsoOr',
+            'services.stripe.trial_days' => 1,
+        ]);
+
+        $user = User::factory()->create();
+        $token = $user->createToken('api')->plainTextToken;
+
+        $subscription = StripeSubscription::constructFrom([
+            'id' => 'sub_from_intent',
+            'status' => 'trialing',
+            'latest_invoice' => null,
+            'pending_setup_intent' => [
+                'id' => 'seti_test_123',
+                'client_secret' => 'seti_test_123_secret',
+            ],
+        ]);
+
+        $this->mock(StripeService::class, function (MockInterface $mock) use ($subscription) {
+            $mock->shouldReceive('isConfiguredPriceId')
+                ->once()
+                ->with('price_1TzhHLQMCZvDbFTHiAqpsoOr')
+                ->andReturn(true);
+
+            $mock->shouldReceive('createSubscription')
+                ->once()
+                ->andReturn($subscription);
+
+            $mock->shouldReceive('extractSubscriptionClientSecret')
+                ->once()
+                ->with($subscription)
+                ->andReturn([
+                    'client_secret' => 'seti_test_123_secret',
+                    'payment_intent_id' => 'seti_test_123',
+                    'subscription_id' => 'sub_from_intent',
+                ]);
+
+            $mock->shouldReceive('trialDays')
+                ->andReturn(1);
+        });
+
+        $this->withToken($token)
+            ->postJson('/api/payments/intent', [
+                'plan_id' => 'price_1TzhHLQMCZvDbFTHiAqpsoOr',
+            ])
+            ->assertCreated()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.client_secret', 'seti_test_123_secret')
+            ->assertJsonPath('data.payment_intent_id', 'seti_test_123')
+            ->assertJsonPath('data.subscription_id', 'sub_from_intent')
+            ->assertJsonPath('data.plan_id', 'price_1TzhHLQMCZvDbFTHiAqpsoOr');
+    }
+
+    public function test_create_payment_intent_with_unknown_plan_id_returns_422(): void
+    {
+        $user = User::factory()->create();
+        $token = $user->createToken('api')->plainTextToken;
+
+        $this->mock(StripeService::class, function (MockInterface $mock) {
+            $mock->shouldReceive('isConfiguredPriceId')
+                ->once()
+                ->with('price_not_configured')
+                ->andReturn(false);
+        });
+
+        $this->withToken($token)
+            ->postJson('/api/payments/intent', [
+                'plan_id' => 'price_not_configured',
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('success', false);
+    }
+
     public function test_webhook_with_invalid_signature_returns_400(): void
     {
         $this->mock(StripeService::class, function (MockInterface $mock) {
@@ -173,6 +248,15 @@ class StripeTest extends TestCase
                 ->once()
                 ->andReturn($subscription);
 
+            $mock->shouldReceive('extractSubscriptionClientSecret')
+                ->once()
+                ->with($subscription)
+                ->andReturn([
+                    'client_secret' => 'pi_sub_test_secret',
+                    'payment_intent_id' => 'pi_sub_test',
+                    'subscription_id' => 'sub_test_123',
+                ]);
+
             $mock->shouldReceive('trialDays')
                 ->andReturn(14);
         });
@@ -187,6 +271,60 @@ class StripeTest extends TestCase
             ->assertJsonPath('data.price_id', 'price_1TzhHLQMCZvDbFTHiAqpsoOr')
             ->assertJsonPath('data.subscription_id', 'sub_test_123')
             ->assertJsonPath('data.client_secret', 'pi_sub_test_secret');
+    }
+
+    public function test_create_subscription_with_plan_id_returns_client_secret(): void
+    {
+        config([
+            'services.stripe.price_prueba' => 'price_1TzhHLQMCZvDbFTHiAqpsoOr',
+            'services.stripe.trial_days' => 1,
+        ]);
+
+        $user = User::factory()->create();
+        $token = $user->createToken('api')->plainTextToken;
+
+        $subscription = StripeSubscription::constructFrom([
+            'id' => 'sub_plan_id_123',
+            'status' => 'trialing',
+            'trial_end' => now()->addDay()->timestamp,
+        ]);
+
+        $this->mock(StripeService::class, function (MockInterface $mock) use ($subscription) {
+            $mock->shouldReceive('isConfiguredPriceId')
+                ->once()
+                ->with('price_1TzhHLQMCZvDbFTHiAqpsoOr')
+                ->andReturn(true);
+
+            $mock->shouldReceive('resolvePlanByPriceId')
+                ->once()
+                ->with('price_1TzhHLQMCZvDbFTHiAqpsoOr')
+                ->andReturn('prueba');
+
+            $mock->shouldReceive('createSubscription')
+                ->once()
+                ->andReturn($subscription);
+
+            $mock->shouldReceive('extractSubscriptionClientSecret')
+                ->once()
+                ->andReturn([
+                    'client_secret' => 'seti_sub_secret',
+                    'payment_intent_id' => 'seti_sub_123',
+                    'subscription_id' => 'sub_plan_id_123',
+                ]);
+
+            $mock->shouldReceive('trialDays')
+                ->andReturn(1);
+        });
+
+        $this->withToken($token)
+            ->postJson('/api/subscriptions', [
+                'plan_id' => 'price_1TzhHLQMCZvDbFTHiAqpsoOr',
+            ])
+            ->assertCreated()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.plan', 'prueba')
+            ->assertJsonPath('data.plan_id', 'price_1TzhHLQMCZvDbFTHiAqpsoOr')
+            ->assertJsonPath('data.client_secret', 'seti_sub_secret');
     }
 
     public function test_create_subscription_without_plan_returns_422(): void
