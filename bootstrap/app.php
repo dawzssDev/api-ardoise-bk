@@ -20,6 +20,10 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         // Hostinger / LiteSpeed: confiar en el proxy para HTTPS y IP real
         $middleware->trustProxies(at: '*');
+
+        $middleware->alias([
+            'master' => \App\Http\Middleware\EnsureMasterUser::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // Respuestas JSON consistentes para rutas api/*

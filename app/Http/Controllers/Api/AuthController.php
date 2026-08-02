@@ -6,17 +6,21 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
 use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Resources\NegocioResource;
+use App\Http\Resources\StaffResource;
 use App\Http\Resources\UserResource;
+use App\Models\Staff;
 use App\Models\User;
+use App\Services\AuthService;
 use App\Services\RegisterService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class AuthController extends Controller
 {
     public function __construct(
         private readonly RegisterService $registerService,
+        private readonly AuthService $authService,
     ) {}
 
     /**
@@ -28,12 +32,13 @@ class AuthController extends Controller
 
         $user = $result['user'];
         $negocio = $result['negocio'];
-        $token = $user->createToken('api')->plainTextToken;
+        $token = $this->authService->issueToken($user);
 
         return response()->json([
             'success' => true,
             'message' => 'Cuenta y negocio creados correctamente.',
             'data' => [
+                'type' => 'user',
                 'user' => (new UserResource($user))->resolve(),
                 'negocio' => (new NegocioResource($negocio))->resolve(),
                 'token' => $token,
@@ -44,32 +49,64 @@ class AuthController extends Controller
     }
 
     /**
-     * Iniciar sesión y emitir token Bearer.
+     * Iniciar sesión (users maestro o staff) y emitir token Bearer.
      */
     public function login(LoginRequest $request): JsonResponse
     {
-        $user = User::where('email', $request->validated('email'))->first();
-
-        if (! $user || ! Hash::check($request->validated('password'), $user->password)) {
+        try {
+            $result = $this->authService->attempt(
+                $request->loginIdentifier(),
+                $request->validated('password'),
+            );
+        } catch (HttpException $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Credenciales inválidas',
+                'message' => $e->getMessage(),
                 'data' => null,
                 'errors' => null,
-            ], 401);
+            ], $e->getStatusCode());
         }
 
-        // Evita acumulación de tokens con el mismo nombre
-        $user->tokens()->where('name', 'api')->delete();
+        /** @var User|Staff $actor */
+        $actor = $result['actor'];
+        $token = $this->authService->issueToken($actor);
 
-        $user->load('negocio');
-        $token = $user->createToken('api')->plainTextToken;
+        if ($result['type'] === 'staff') {
+            /** @var Staff $actor */
+            $actor->load([
+                'negocio',
+                'sucursal:id,negocio_id,type,name',
+                'role:id,negocio_id,name,permissions,status',
+                'empleado:id,negocio_id,first_name,paternal_surname,maternal_surname,employee_number,status',
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Inicio de sesión correcto.',
+                'data' => [
+                    'type' => 'staff',
+                    'user' => null,
+                    'staff' => (new StaffResource($actor))->resolve(),
+                    'negocio' => $actor->negocio
+                        ? (new NegocioResource($actor->negocio))->resolve()
+                        : null,
+                    'token' => $token,
+                    'token_type' => 'Bearer',
+                ],
+                'errors' => null,
+            ]);
+        }
+
+        /** @var User $actor */
+        $actor->load('negocio');
 
         return response()->json([
             'success' => true,
             'message' => 'Inicio de sesión correcto.',
             'data' => [
-                'user' => (new UserResource($user))->resolve(),
+                'type' => 'user',
+                'user' => (new UserResource($actor))->resolve(),
+                'staff' => null,
                 'token' => $token,
                 'token_type' => 'Bearer',
             ],
@@ -93,17 +130,44 @@ class AuthController extends Controller
     }
 
     /**
-     * Devolver el usuario autenticado.
+     * Devolver el actor autenticado (maestro o staff).
      */
     public function me(Request $request): JsonResponse
     {
-        $user = $request->user()->load('negocio');
+        $actor = $request->user();
+
+        if ($actor instanceof Staff) {
+            $actor->load([
+                'negocio',
+                'sucursal:id,negocio_id,type,name',
+                'role:id,negocio_id,name,permissions,status',
+                'empleado:id,negocio_id,first_name,paternal_surname,maternal_surname,employee_number,status',
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'ok',
+                'data' => [
+                    'type' => 'staff',
+                    'user' => null,
+                    'staff' => (new StaffResource($actor))->resolve(),
+                    'negocio' => $actor->negocio
+                        ? (new NegocioResource($actor->negocio))->resolve()
+                        : null,
+                ],
+                'errors' => null,
+            ]);
+        }
+
+        $actor->load('negocio');
 
         return response()->json([
             'success' => true,
             'message' => 'ok',
             'data' => [
-                'user' => (new UserResource($user))->resolve(),
+                'type' => 'user',
+                'user' => (new UserResource($actor))->resolve(),
+                'staff' => null,
             ],
             'errors' => null,
         ]);

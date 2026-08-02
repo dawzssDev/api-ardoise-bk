@@ -18,8 +18,15 @@ class RateLimitServiceProvider extends ServiceProvider
         // Llave email+IP: evita credential stuffing y que un atacante bloquee
         // a un usuario legítimo conociendo solo su correo.
         RateLimiter::for('auth', function (Request $request) {
+            $login = (string) (
+                $request->input('email')
+                ?? $request->input('usuario')
+                ?? $request->input('username')
+                ?? ''
+            );
+
             return Limit::perMinute(5)
-                ->by(strtolower((string) $request->input('email')).'|'.$request->ip())
+                ->by(strtolower($login).'|'.$request->ip())
                 ->response($this->tooManyAttemptsResponse());
         });
 
@@ -37,8 +44,10 @@ class RateLimitServiceProvider extends ServiceProvider
         });
 
         RateLimiter::for('api', function (Request $request) {
+            $actor = $request->user();
+
             return Limit::perMinute(60)
-                ->by($request->user()?->id ?: $request->ip())
+                ->by($actor ? $actor::class.'|'.$actor->getAuthIdentifier() : $request->ip())
                 ->response($this->tooManyAttemptsResponse());
         });
 

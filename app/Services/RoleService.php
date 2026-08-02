@@ -4,34 +4,29 @@ namespace App\Services;
 
 use App\Models\Negocio;
 use App\Models\Role;
+use App\Models\Staff;
 use App\Models\User;
+use App\Services\Concerns\ResolvesNegocioFromActor;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class RoleService
 {
-    public function negocioForUser(User $user): Negocio
-    {
-        $negocio = $user->negocio;
-
-        if (! $negocio) {
-            throw new HttpException(422, 'El usuario no tiene un negocio asociado.');
-        }
-
-        return $negocio;
-    }
+    use ResolvesNegocioFromActor;
 
     /**
      * @param  array{name: string, permissions?: array<string, bool>|null, status?: bool}  $data
      */
-    public function create(Negocio $negocio, User $user, array $data): Role
+    public function create(Negocio $negocio, User|Staff $user, array $data): Role
     {
+        $auditId = $this->auditUserId($user, $negocio);
+
         return $negocio->roles()->create([
             'name' => $data['name'],
             'permissions' => Role::normalizePermissions($data['permissions'] ?? null),
             'status' => $data['status'] ?? true,
-            'created_by' => $user->id,
-            'updated_by' => $user->id,
+            'created_by' => $auditId,
+            'updated_by' => $auditId,
         ]);
     }
 
@@ -53,7 +48,7 @@ class RoleService
     /**
      * @param  array<string, mixed>  $data
      */
-    public function update(Role $role, User $user, array $data): Role
+    public function update(Role $role, User|Staff $user, array $data): Role
     {
         if (array_key_exists('permissions', $data)) {
             $data['permissions'] = Role::normalizePermissions(
@@ -62,16 +57,16 @@ class RoleService
         }
 
         $role->fill($data);
-        $role->updated_by = $user->id;
+        $role->updated_by = $this->auditUserId($user, $role->negocio);
         $role->save();
 
         return $role->refresh()->load(['createdBy:id,name,email', 'updatedBy:id,name,email']);
     }
 
-    public function setStatus(Role $role, User $user, bool $status): Role
+    public function setStatus(Role $role, User|Staff $user, bool $status): Role
     {
         $role->status = $status;
-        $role->updated_by = $user->id;
+        $role->updated_by = $this->auditUserId($user, $role->negocio);
         $role->save();
 
         return $role->refresh()->load(['createdBy:id,name,email', 'updatedBy:id,name,email']);

@@ -26,6 +26,7 @@ class StaffResource extends JsonResource
             'role' => $this->whenLoaded('role', fn () => $this->role ? [
                 'id' => $this->role->id,
                 'name' => $this->role->name,
+                'permissions' => $this->role->permissions,
                 'status' => $this->role->status,
             ] : null),
             'empleado_id' => $this->empleado_id,

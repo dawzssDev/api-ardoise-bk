@@ -4,7 +4,9 @@ namespace App\Services;
 
 use App\Models\Empleado;
 use App\Models\Negocio;
+use App\Models\Staff;
 use App\Models\User;
+use App\Services\Concerns\ResolvesNegocioFromActor;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -13,25 +15,18 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class EmpleadoService
 {
+    use ResolvesNegocioFromActor;
+
     private const IMAGE_DISK = 'empleados';
-
-    public function negocioForUser(User $user): Negocio
-    {
-        $negocio = $user->negocio;
-
-        if (! $negocio) {
-            throw new HttpException(422, 'El usuario no tiene un negocio asociado.');
-        }
-
-        return $negocio;
-    }
 
     /**
      * @param  array<string, mixed>  $data
      */
-    public function create(Negocio $negocio, User $user, array $data): Empleado
+    public function create(Negocio $negocio, User|Staff $user, array $data): Empleado
     {
         $imagePath = null;
+        $auditId = $this->auditUserId($user, $negocio);
+
         if (($data['image'] ?? null) instanceof UploadedFile) {
             $imagePath = $this->storeImage($negocio, $data['image']);
         }
@@ -62,8 +57,8 @@ class EmpleadoService
             'emergency_contact_name' => $data['emergency_contact_name'] ?? null,
             'emergency_contact_relationship' => $data['emergency_contact_relationship'] ?? null,
             'emergency_contact_phone' => $data['emergency_contact_phone'] ?? null,
-            'created_by' => $user->id,
-            'updated_by' => $user->id,
+            'created_by' => $auditId,
+            'updated_by' => $auditId,
         ]);
     }
 
@@ -95,7 +90,7 @@ class EmpleadoService
     /**
      * @param  array<string, mixed>  $data
      */
-    public function update(Empleado $empleado, User $user, array $data): Empleado
+    public function update(Empleado $empleado, User|Staff $user, array $data): Empleado
     {
         if (($data['image'] ?? null) instanceof UploadedFile) {
             $this->deleteImage($empleado->image);
@@ -106,7 +101,7 @@ class EmpleadoService
 
         DB::transaction(function () use ($empleado, $user, $data): void {
             $empleado->fill($data);
-            $empleado->updated_by = $user->id;
+            $empleado->updated_by = $this->auditUserId($user, $empleado->negocio);
             $empleado->save();
 
             $this->syncStaffFromEmpleado($empleado, $user);
@@ -123,7 +118,7 @@ class EmpleadoService
     /**
      * Si el personal tiene usuario staff, alinea sucursal y rol.
      */
-    private function syncStaffFromEmpleado(Empleado $empleado, User $user): void
+    private function syncStaffFromEmpleado(Empleado $empleado, User|Staff $user): void
     {
         $staff = $empleado->staff;
 
@@ -147,14 +142,14 @@ class EmpleadoService
             return;
         }
 
-        $staff->updated_by = $user->id;
+        $staff->updated_by = $this->auditUserId($user, $empleado->negocio);
         $staff->save();
     }
 
-    public function setStatus(Empleado $empleado, User $user, string $status): Empleado
+    public function setStatus(Empleado $empleado, User|Staff $user, string $status): Empleado
     {
         $empleado->status = $status;
-        $empleado->updated_by = $user->id;
+        $empleado->updated_by = $this->auditUserId($user, $empleado->negocio);
         $empleado->save();
 
         return $empleado->refresh()->load([

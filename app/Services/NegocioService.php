@@ -3,12 +3,13 @@
 namespace App\Services;
 
 use App\Models\Negocio;
+use App\Models\Staff;
 use App\Models\User;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class NegocioService
 {
-    public function forUser(User $user): Negocio
+    public function forUser(User|Staff $user): Negocio
     {
         $negocio = $user->negocio;
 

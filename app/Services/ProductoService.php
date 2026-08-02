@@ -4,33 +4,26 @@ namespace App\Services;
 
 use App\Models\Negocio;
 use App\Models\Producto;
+use App\Models\Staff;
 use App\Models\User;
+use App\Services\Concerns\ResolvesNegocioFromActor;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
-use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class ProductoService
 {
+    use ResolvesNegocioFromActor;
+
     private const IMAGE_DISK = 'productos';
-
-    public function negocioForUser(User $user): Negocio
-    {
-        $negocio = $user->negocio;
-
-        if (! $negocio) {
-            throw new HttpException(422, 'El usuario no tiene un negocio asociado.');
-        }
-
-        return $negocio;
-    }
 
     /**
      * @param  array{name: string, categoria_producto_id: int, price: float|int|string, image?: UploadedFile|null}  $data
      */
-    public function create(Negocio $negocio, User $user, array $data): Producto
+    public function create(Negocio $negocio, User|Staff $user, array $data): Producto
     {
         $imagePath = null;
+        $auditId = $this->auditUserId($user, $negocio);
 
         if (($data['image'] ?? null) instanceof UploadedFile) {
             $imagePath = $this->storeImage($negocio, $data['image']);
@@ -41,8 +34,8 @@ class ProductoService
             'name' => $data['name'],
             'price' => $data['price'],
             'image' => $imagePath,
-            'created_by' => $user->id,
-            'updated_by' => $user->id,
+            'created_by' => $auditId,
+            'updated_by' => $auditId,
         ]);
     }
 
@@ -72,7 +65,7 @@ class ProductoService
     /**
      * @param  array<string, mixed>  $data
      */
-    public function update(Producto $producto, User $user, array $data): Producto
+    public function update(Producto $producto, User|Staff $user, array $data): Producto
     {
         if (($data['image'] ?? null) instanceof UploadedFile) {
             $this->deleteImage($producto->image);
@@ -82,7 +75,7 @@ class ProductoService
         }
 
         $producto->fill($data);
-        $producto->updated_by = $user->id;
+        $producto->updated_by = $this->auditUserId($user, $producto->negocio);
         $producto->save();
 
         return $producto->refresh()->load([

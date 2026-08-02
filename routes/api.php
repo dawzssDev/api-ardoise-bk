@@ -44,21 +44,24 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/auth/me', [AuthController::class, 'me']);
 
-    // Perfil de usuario
-    Route::get('/user', [UserController::class, 'show']);
-    Route::put('/user', [UserController::class, 'update']);
+    // Perfil / facturación: solo usuario maestro
+    Route::middleware('master')->group(function () {
+        Route::get('/user', [UserController::class, 'show']);
+        Route::put('/user', [UserController::class, 'update']);
 
-    // Negocio del usuario
+        Route::put('/negocio', [NegocioController::class, 'update']);
+
+        Route::post('/payments/intent', [PaymentController::class, 'createIntent']);
+        Route::get('/payments', [PaymentController::class, 'index']);
+
+        Route::get('/subscriptions/plans', [SubscriptionController::class, 'plans']);
+        Route::post('/subscriptions', [SubscriptionController::class, 'store']);
+        Route::get('/subscriptions', [SubscriptionController::class, 'index']);
+        Route::delete('/subscriptions/{stripeSubscriptionId}', [SubscriptionController::class, 'destroy']);
+    });
+
+    // Negocio: lectura permitida a maestro y staff
     Route::get('/negocio', [NegocioController::class, 'show']);
-    Route::put('/negocio', [NegocioController::class, 'update']);
-
-    Route::post('/payments/intent', [PaymentController::class, 'createIntent']);
-    Route::get('/payments', [PaymentController::class, 'index']);
-
-    Route::get('/subscriptions/plans', [SubscriptionController::class, 'plans']);
-    Route::post('/subscriptions', [SubscriptionController::class, 'store']);
-    Route::get('/subscriptions', [SubscriptionController::class, 'index']);
-    Route::delete('/subscriptions/{stripeSubscriptionId}', [SubscriptionController::class, 'destroy']);
 
     // Sucursales / bodegas del negocio (throttle:api = máx. 60 req/min)
     Route::get('/sucursales', [SucursalController::class, 'index']);
@@ -122,11 +125,13 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::put('/empleados/{id}/status', [EmpleadoController::class, 'setStatus'])->whereNumber('id');
     Route::delete('/empleados/{id}', [EmpleadoController::class, 'destroy'])->whereNumber('id');
 
-    // Usuarios staff (operativos; separados de users maestros)
-    Route::get('/staff', [StaffController::class, 'index']);
-    Route::post('/staff', [StaffController::class, 'store']);
-    Route::get('/staff/{id}', [StaffController::class, 'show'])->whereNumber('id');
-    Route::put('/staff/{id}', [StaffController::class, 'update'])->whereNumber('id');
-    Route::put('/staff/{id}/status', [StaffController::class, 'setStatus'])->whereNumber('id');
-    Route::delete('/staff/{id}', [StaffController::class, 'destroy'])->whereNumber('id');
+    // Usuarios staff: administración solo maestro
+    Route::middleware('master')->group(function () {
+        Route::get('/staff', [StaffController::class, 'index']);
+        Route::post('/staff', [StaffController::class, 'store']);
+        Route::get('/staff/{id}', [StaffController::class, 'show'])->whereNumber('id');
+        Route::put('/staff/{id}', [StaffController::class, 'update'])->whereNumber('id');
+        Route::put('/staff/{id}/status', [StaffController::class, 'setStatus'])->whereNumber('id');
+        Route::delete('/staff/{id}', [StaffController::class, 'destroy'])->whereNumber('id');
+    });
 });

@@ -4,22 +4,13 @@ namespace App\Services;
 
 use App\Models\CategoriaInsumo;
 use App\Models\Negocio;
-use App\Models\User;
+use App\Services\Concerns\ResolvesNegocioFromActor;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class CategoriaInsumoService
 {
-    public function negocioForUser(User $user): Negocio
-    {
-        $negocio = $user->negocio;
-
-        if (! $negocio) {
-            throw new HttpException(422, 'El usuario no tiene un negocio asociado.');
-        }
-
-        return $negocio;
-    }
+    use ResolvesNegocioFromActor;
 
     /**
      * @param  array{name: string}  $data

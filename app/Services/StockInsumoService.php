@@ -3,25 +3,17 @@
 namespace App\Services;
 
 use App\Models\Negocio;
+use App\Models\Staff;
 use App\Models\StockInsumo;
 use App\Models\Sucursal;
 use App\Models\User;
+use App\Services\Concerns\ResolvesNegocioFromActor;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
-use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class StockInsumoService
 {
-    public function negocioForUser(User $user): Negocio
-    {
-        $negocio = $user->negocio;
-
-        if (! $negocio) {
-            throw new HttpException(422, 'El usuario no tiene un negocio asociado.');
-        }
-
-        return $negocio;
-    }
+    use ResolvesNegocioFromActor;
 
     public function findSucursalForNegocio(Negocio $negocio, int $sucursalId): Sucursal
     {
@@ -92,10 +84,11 @@ class StockInsumoService
     /**
      * @param  array{sucursal_id: int, insumo_id: int, stock_fisico: float|int|string, stock_minimo: float|int|string}  $data
      */
-    public function upsert(Negocio $negocio, User $user, array $data): StockInsumo
+    public function upsert(Negocio $negocio, User|Staff $user, array $data): StockInsumo
     {
         $sucursal = $this->findSucursalForNegocio($negocio, (int) $data['sucursal_id']);
         $insumo = $negocio->insumos()->findOrFail((int) $data['insumo_id']);
+        $auditId = $this->auditUserId($user, $negocio);
 
         $stock = StockInsumo::query()->firstOrNew([
             'sucursal_id' => $sucursal->id,
@@ -104,12 +97,12 @@ class StockInsumoService
 
         if (! $stock->exists) {
             $stock->negocio_id = $negocio->id;
-            $stock->created_by = $user->id;
+            $stock->created_by = $auditId;
         }
 
         $stock->stock_fisico = $data['stock_fisico'];
         $stock->stock_minimo = $data['stock_minimo'];
-        $stock->updated_by = $user->id;
+        $stock->updated_by = $auditId;
         $stock->save();
 
         return $stock->refresh()->load([
@@ -124,7 +117,7 @@ class StockInsumoService
      * @param  array<int, array{insumo_id: int, stock_fisico: float|int|string, stock_minimo: float|int|string}>  $items
      * @return list<StockInsumo>
      */
-    public function upsertMany(Negocio $negocio, User $user, Sucursal $sucursal, array $items): array
+    public function upsertMany(Negocio $negocio, User|Staff $user, Sucursal $sucursal, array $items): array
     {
         return DB::transaction(function () use ($negocio, $user, $sucursal, $items) {
             $saved = [];
@@ -145,10 +138,10 @@ class StockInsumoService
     /**
      * @param  array{stock_fisico?: float|int|string, stock_minimo?: float|int|string}  $data
      */
-    public function update(StockInsumo $stock, User $user, array $data): StockInsumo
+    public function update(StockInsumo $stock, User|Staff $user, array $data): StockInsumo
     {
         $stock->fill($data);
-        $stock->updated_by = $user->id;
+        $stock->updated_by = $this->auditUserId($user, $stock->negocio);
         $stock->save();
 
         return $stock->refresh()->load([

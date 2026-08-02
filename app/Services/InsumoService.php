@@ -4,34 +4,28 @@ namespace App\Services;
 
 use App\Models\Insumo;
 use App\Models\Negocio;
+use App\Models\Staff;
 use App\Models\User;
+use App\Services\Concerns\ResolvesNegocioFromActor;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
-use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class InsumoService
 {
-    public function negocioForUser(User $user): Negocio
-    {
-        $negocio = $user->negocio;
-
-        if (! $negocio) {
-            throw new HttpException(422, 'El usuario no tiene un negocio asociado.');
-        }
-
-        return $negocio;
-    }
+    use ResolvesNegocioFromActor;
 
     /**
      * @param  array{name: string, categoria_insumo_id: int, status_insumo?: bool}  $data
      */
-    public function create(Negocio $negocio, User $user, array $data): Insumo
+    public function create(Negocio $negocio, User|Staff $user, array $data): Insumo
     {
+        $auditId = $this->auditUserId($user, $negocio);
+
         return $negocio->insumos()->create([
             'categoria_insumo_id' => $data['categoria_insumo_id'],
             'name' => $data['name'],
             'status_insumo' => $data['status_insumo'] ?? true,
-            'created_by' => $user->id,
-            'updated_by' => $user->id,
+            'created_by' => $auditId,
+            'updated_by' => $auditId,
         ]);
     }
 
@@ -61,10 +55,10 @@ class InsumoService
     /**
      * @param  array<string, mixed>  $data
      */
-    public function update(Insumo $insumo, User $user, array $data): Insumo
+    public function update(Insumo $insumo, User|Staff $user, array $data): Insumo
     {
         $insumo->fill($data);
-        $insumo->updated_by = $user->id;
+        $insumo->updated_by = $this->auditUserId($user, $insumo->negocio);
         $insumo->save();
 
         return $insumo->refresh()->load([
@@ -74,10 +68,10 @@ class InsumoService
         ]);
     }
 
-    public function setStatus(Insumo $insumo, User $user, bool $statusInsumo): Insumo
+    public function setStatus(Insumo $insumo, User|Staff $user, bool $statusInsumo): Insumo
     {
         $insumo->status_insumo = $statusInsumo;
-        $insumo->updated_by = $user->id;
+        $insumo->updated_by = $this->auditUserId($user, $insumo->negocio);
         $insumo->save();
 
         return $insumo->refresh()->load([
