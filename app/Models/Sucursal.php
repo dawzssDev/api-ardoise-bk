@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Sucursal extends Model
 {
@@ -42,5 +43,10 @@ class Sucursal extends Model
     public function negocio(): BelongsTo
     {
         return $this->belongsTo(Negocio::class);
+    }
+
+    public function stockInsumos(): HasMany
+    {
+        return $this->hasMany(StockInsumo::class);
     }
 }

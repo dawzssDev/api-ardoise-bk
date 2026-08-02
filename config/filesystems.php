@@ -47,6 +47,19 @@ return [
             'report' => false,
         ],
 
+        /*
+        | Imágenes de productos en public/productos (sin storage:link).
+        | Útil en Hostinger donde symlink/exec suelen estar deshabilitados.
+        */
+        'productos' => [
+            'driver' => 'local',
+            'root' => public_path('productos'),
+            'url' => rtrim(env('APP_URL', 'http://localhost'), '/').'/productos',
+            'visibility' => 'public',
+            'throw' => false,
+            'report' => false,
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),

@@ -2,11 +2,14 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CategoriaInsumoController;
+use App\Http\Controllers\Api\CategoriaProductoController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\InsumoController;
 use App\Http\Controllers\Api\NegocioController;
 use App\Http\Controllers\Api\PasswordResetController;
 use App\Http\Controllers\Api\PaymentController;
+use App\Http\Controllers\Api\ProductoController;
+use App\Http\Controllers\Api\StockInsumoController;
 use App\Http\Controllers\Api\StripeWebhookController;
 use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\SucursalController;
@@ -68,10 +71,33 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::put('/categoria-insumos/{id}', [CategoriaInsumoController::class, 'update'])->whereNumber('id');
     Route::delete('/categoria-insumos/{id}', [CategoriaInsumoController::class, 'destroy'])->whereNumber('id');
 
+    // Categorías de productos del negocio (throttle:api = máx. 60 req/min)
+    Route::get('/categoria-productos', [CategoriaProductoController::class, 'index']);
+    Route::post('/categoria-productos', [CategoriaProductoController::class, 'store']);
+    Route::get('/categoria-productos/{id}', [CategoriaProductoController::class, 'show'])->whereNumber('id');
+    Route::put('/categoria-productos/{id}', [CategoriaProductoController::class, 'update'])->whereNumber('id');
+    Route::delete('/categoria-productos/{id}', [CategoriaProductoController::class, 'destroy'])->whereNumber('id');
+
     // Insumos del negocio (throttle:api = máx. 60 req/min)
     Route::get('/insumos', [InsumoController::class, 'index']);
     Route::post('/insumos', [InsumoController::class, 'store']);
     Route::get('/insumos/{id}', [InsumoController::class, 'show'])->whereNumber('id');
     Route::put('/insumos/{id}', [InsumoController::class, 'update'])->whereNumber('id');
     Route::put('/insumos/{id}/status', [InsumoController::class, 'setStatus'])->whereNumber('id');
+
+    // Stock de insumos por sucursal/bodega (throttle:api = máx. 60 req/min)
+    Route::get('/stock-insumos', [StockInsumoController::class, 'index']);
+    Route::put('/stock-insumos', [StockInsumoController::class, 'upsert']);
+    Route::put('/stock-insumos/bulk', [StockInsumoController::class, 'bulkUpsert']);
+    Route::get('/stock-insumos/{id}', [StockInsumoController::class, 'show'])->whereNumber('id');
+    Route::put('/stock-insumos/{id}', [StockInsumoController::class, 'update'])->whereNumber('id');
+
+    // Productos del negocio (throttle:api = máx. 60 req/min)
+    Route::get('/productos', [ProductoController::class, 'index']);
+    Route::post('/productos', [ProductoController::class, 'store']);
+    Route::get('/productos/{id}', [ProductoController::class, 'show'])->whereNumber('id');
+    // POST también para poder enviar imagen (multipart); PUT sirve sin archivo
+    Route::post('/productos/{id}', [ProductoController::class, 'update'])->whereNumber('id');
+    Route::put('/productos/{id}', [ProductoController::class, 'update'])->whereNumber('id');
+    Route::delete('/productos/{id}', [ProductoController::class, 'destroy'])->whereNumber('id');
 });

@@ -326,6 +326,111 @@ CREATE TABLE `insumos` (
 --     FOREIGN KEY (`categoria_insumo_id`) REFERENCES `categoria_insumos` (`id`) ON DELETE RESTRICT;
 
 
+--------------------------------------------------------------------------------
+1f) categoria_productos  (catálogo de categorías por negocio; solo nombre)
+--------------------------------------------------------------------------------
+CREATE TABLE `categoria_productos` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `negocio_id` bigint UNSIGNED NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `categoria_productos_negocio_id_name_unique` (`negocio_id`, `name`),
+  KEY `categoria_productos_negocio_id_foreign` (`negocio_id`),
+  CONSTRAINT `categoria_productos_negocio_id_foreign`
+    FOREIGN KEY (`negocio_id`) REFERENCES `negocios` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+--------------------------------------------------------------------------------
+1g) productos  (ligados al negocio + categoría; imagen opcional; auditoría)
+--------------------------------------------------------------------------------
+-- Equivalencias:
+--   Producto           → name
+--   categoriaProducto  → categoria_producto_id
+--   precio             → price
+--   imagen             → image
+--   empresa            → negocio_id
+--   fechaCreacion      → created_at
+--   usercreacion       → created_by
+--   fechaupdate        → updated_at
+--   userupdate         → updated_by
+CREATE TABLE `productos` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `negocio_id` bigint UNSIGNED NOT NULL,
+  `categoria_producto_id` bigint UNSIGNED NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `price` decimal(12,2) NOT NULL,
+  `image` varchar(255) NULL DEFAULT NULL,
+  `created_by` bigint UNSIGNED NOT NULL,
+  `updated_by` bigint UNSIGNED NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `productos_negocio_id_name_unique` (`negocio_id`, `name`),
+  KEY `productos_negocio_id_foreign` (`negocio_id`),
+  KEY `productos_categoria_producto_id_foreign` (`categoria_producto_id`),
+  KEY `productos_created_by_foreign` (`created_by`),
+  KEY `productos_updated_by_foreign` (`updated_by`),
+  KEY `productos_negocio_id_categoria_producto_id_index` (`negocio_id`, `categoria_producto_id`),
+  CONSTRAINT `productos_negocio_id_foreign`
+    FOREIGN KEY (`negocio_id`) REFERENCES `negocios` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `productos_categoria_producto_id_foreign`
+    FOREIGN KEY (`categoria_producto_id`) REFERENCES `categoria_productos` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `productos_created_by_foreign`
+    FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `productos_updated_by_foreign`
+    FOREIGN KEY (`updated_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+--------------------------------------------------------------------------------
+1h) stock_insumos  (stock físico y mínimo por sucursal/bodega)
+--------------------------------------------------------------------------------
+-- Equivalencias:
+--   negocio      → negocio_id
+--   sucursal     → sucursal_id
+--   insumo       → insumo_id
+--   stockFisico  → stock_fisico
+--   stockminimo  → stock_minimo
+--   usercreation → created_by
+--   datecreation → created_at
+--   userupdate   → updated_by
+--   dateupdate   → updated_at
+CREATE TABLE `stock_insumos` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `negocio_id` bigint UNSIGNED NOT NULL,
+  `sucursal_id` bigint UNSIGNED NOT NULL,
+  `insumo_id` bigint UNSIGNED NOT NULL,
+  `stock_fisico` decimal(14,3) NOT NULL DEFAULT 0.000,
+  `stock_minimo` decimal(14,3) NOT NULL DEFAULT 0.000,
+  `created_by` bigint UNSIGNED NOT NULL,
+  `updated_by` bigint UNSIGNED NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `stock_insumos_sucursal_id_insumo_id_unique` (`sucursal_id`, `insumo_id`),
+  KEY `stock_insumos_negocio_id_foreign` (`negocio_id`),
+  KEY `stock_insumos_sucursal_id_foreign` (`sucursal_id`),
+  KEY `stock_insumos_insumo_id_foreign` (`insumo_id`),
+  KEY `stock_insumos_created_by_foreign` (`created_by`),
+  KEY `stock_insumos_updated_by_foreign` (`updated_by`),
+  KEY `stock_insumos_negocio_id_sucursal_id_index` (`negocio_id`, `sucursal_id`),
+  KEY `stock_insumos_negocio_id_insumo_id_index` (`negocio_id`, `insumo_id`),
+  CONSTRAINT `stock_insumos_negocio_id_foreign`
+    FOREIGN KEY (`negocio_id`) REFERENCES `negocios` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `stock_insumos_sucursal_id_foreign`
+    FOREIGN KEY (`sucursal_id`) REFERENCES `sucursales` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `stock_insumos_insumo_id_foreign`
+    FOREIGN KEY (`insumo_id`) REFERENCES `insumos` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `stock_insumos_created_by_foreign`
+    FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `stock_insumos_updated_by_foreign`
+    FOREIGN KEY (`updated_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
 ================================================================================
 RESUMEN (orden de creación)
 ================================================================================
@@ -333,8 +438,11 @@ RESUMEN (orden de creación)
  1. users
  1b. negocios           ← FK a users (usuario maestro)
  1c. sucursales         ← FK a negocios
- 1d. categoria_insumos  ← FK a negocios
- 1e. insumos            ← FK a negocios + categoria_insumos + users
+ 1d. categoria_insumos   ← FK a negocios
+ 1e. insumos             ← FK a negocios + categoria_insumos + users
+ 1f. categoria_productos ← FK a negocios
+ 1g. productos           ← FK a negocios + categoria_productos + users
+ 1h. stock_insumos       ← FK a negocios + sucursales + insumos + users
  2. password_reset_tokens
  3. sessions
  4. cache

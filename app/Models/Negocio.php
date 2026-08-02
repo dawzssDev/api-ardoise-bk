@@ -44,8 +44,23 @@ class Negocio extends Model
         return $this->hasMany(CategoriaInsumo::class);
     }
 
+    public function categoriaProductos(): HasMany
+    {
+        return $this->hasMany(CategoriaProducto::class);
+    }
+
+    public function productos(): HasMany
+    {
+        return $this->hasMany(Producto::class);
+    }
+
     public function insumos(): HasMany
     {
         return $this->hasMany(Insumo::class);
+    }
+
+    public function stockInsumos(): HasMany
+    {
+        return $this->hasMany(StockInsumo::class);
     }
 }

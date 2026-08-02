@@ -4,17 +4,17 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class Insumo extends Model
+class StockInsumo extends Model
 {
-    protected $table = 'insumos';
+    protected $table = 'stock_insumos';
 
     protected $fillable = [
         'negocio_id',
-        'categoria_insumo_id',
-        'name',
-        'status_insumo',
+        'sucursal_id',
+        'insumo_id',
+        'stock_fisico',
+        'stock_minimo',
         'created_by',
         'updated_by',
     ];
@@ -22,7 +22,8 @@ class Insumo extends Model
     protected function casts(): array
     {
         return [
-            'status_insumo' => 'boolean',
+            'stock_fisico' => 'decimal:3',
+            'stock_minimo' => 'decimal:3',
         ];
     }
 
@@ -31,9 +32,14 @@ class Insumo extends Model
         return $this->belongsTo(Negocio::class);
     }
 
-    public function categoria(): BelongsTo
+    public function sucursal(): BelongsTo
     {
-        return $this->belongsTo(CategoriaInsumo::class, 'categoria_insumo_id');
+        return $this->belongsTo(Sucursal::class);
+    }
+
+    public function insumo(): BelongsTo
+    {
+        return $this->belongsTo(Insumo::class);
     }
 
     public function createdBy(): BelongsTo
@@ -44,10 +50,5 @@ class Insumo extends Model
     public function updatedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'updated_by');
-    }
-
-    public function stocks(): HasMany
-    {
-        return $this->hasMany(StockInsumo::class);
     }
 }
