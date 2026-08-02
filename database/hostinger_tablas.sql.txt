@@ -468,6 +468,64 @@ CREATE TABLE `roles` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
+--------------------------------------------------------------------------------
+1j) empleados  (personal del negocio; rol en lugar de puesto; sueldo + imagen)
+--------------------------------------------------------------------------------
+CREATE TABLE `empleados` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `negocio_id` bigint UNSIGNED NOT NULL,
+  `sucursal_id` bigint UNSIGNED NOT NULL,
+  `role_id` bigint UNSIGNED NOT NULL,
+  `first_name` varchar(255) NOT NULL,
+  `paternal_surname` varchar(255) NOT NULL,
+  `maternal_surname` varchar(255) NULL DEFAULT NULL,
+  `birth_date` date NULL DEFAULT NULL,
+  `gender` varchar(20) NULL DEFAULT NULL,
+  `curp` varchar(18) NULL DEFAULT NULL,
+  `rfc` varchar(13) NULL DEFAULT NULL,
+  `nss` varchar(15) NULL DEFAULT NULL,
+  `phone` varchar(30) NULL DEFAULT NULL,
+  `email` varchar(255) NULL DEFAULT NULL,
+  `address` varchar(500) NULL DEFAULT NULL,
+  `employee_number` varchar(50) NOT NULL,
+  `supervisor_name` varchar(255) NULL DEFAULT NULL,
+  `hire_date` date NULL DEFAULT NULL,
+  `contract_type` varchar(50) NULL DEFAULT NULL,
+  `shift` varchar(50) NULL DEFAULT NULL,
+  `status` varchar(30) NOT NULL DEFAULT 'activo',
+  `salary` decimal(12,2) NULL DEFAULT NULL,
+  `salary_frequency` varchar(20) NULL DEFAULT NULL,
+  `image` varchar(255) NULL DEFAULT NULL,
+  `emergency_contact_name` varchar(255) NULL DEFAULT NULL,
+  `emergency_contact_relationship` varchar(80) NULL DEFAULT NULL,
+  `emergency_contact_phone` varchar(30) NULL DEFAULT NULL,
+  `created_by` bigint UNSIGNED NOT NULL,
+  `updated_by` bigint UNSIGNED NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `empleados_negocio_id_employee_number_unique` (`negocio_id`, `employee_number`),
+  KEY `empleados_negocio_id_foreign` (`negocio_id`),
+  KEY `empleados_sucursal_id_foreign` (`sucursal_id`),
+  KEY `empleados_role_id_foreign` (`role_id`),
+  KEY `empleados_created_by_foreign` (`created_by`),
+  KEY `empleados_updated_by_foreign` (`updated_by`),
+  KEY `empleados_negocio_id_status_index` (`negocio_id`, `status`),
+  KEY `empleados_negocio_id_sucursal_id_index` (`negocio_id`, `sucursal_id`),
+  KEY `empleados_negocio_id_role_id_index` (`negocio_id`, `role_id`),
+  CONSTRAINT `empleados_negocio_id_foreign`
+    FOREIGN KEY (`negocio_id`) REFERENCES `negocios` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `empleados_sucursal_id_foreign`
+    FOREIGN KEY (`sucursal_id`) REFERENCES `sucursales` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `empleados_role_id_foreign`
+    FOREIGN KEY (`role_id`) REFERENCES `roles` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `empleados_created_by_foreign`
+    FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `empleados_updated_by_foreign`
+    FOREIGN KEY (`updated_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
 ================================================================================
 RESUMEN (orden de creación)
 ================================================================================
@@ -481,6 +539,8 @@ RESUMEN (orden de creación)
  1g. productos           ← FK a negocios + categoria_productos + users
  1h. stock_insumos       ← FK a negocios + sucursales + insumos + users
  1i. roles               ← FK a negocios + users
+ 1j. empleados           ← FK a negocios + sucursales + roles + users
+
 
  2. password_reset_tokens
  3. sessions

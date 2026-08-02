@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CategoriaInsumoController;
 use App\Http\Controllers\Api\CategoriaProductoController;
+use App\Http\Controllers\Api\EmpleadoController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\InsumoController;
 use App\Http\Controllers\Api\NegocioController;
@@ -109,4 +110,14 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::put('/roles/{id}', [RoleController::class, 'update'])->whereNumber('id');
     Route::put('/roles/{id}/status', [RoleController::class, 'setStatus'])->whereNumber('id');
     Route::delete('/roles/{id}', [RoleController::class, 'destroy'])->whereNumber('id');
+
+    // Empleados / personal del negocio (throttle:api = máx. 60 req/min)
+    Route::get('/empleados', [EmpleadoController::class, 'index']);
+    Route::post('/empleados', [EmpleadoController::class, 'store']);
+    Route::get('/empleados/{id}', [EmpleadoController::class, 'show'])->whereNumber('id');
+    // POST también para poder enviar imagen (multipart); PUT sirve sin archivo
+    Route::post('/empleados/{id}', [EmpleadoController::class, 'update'])->whereNumber('id');
+    Route::put('/empleados/{id}', [EmpleadoController::class, 'update'])->whereNumber('id');
+    Route::put('/empleados/{id}/status', [EmpleadoController::class, 'setStatus'])->whereNumber('id');
+    Route::delete('/empleados/{id}', [EmpleadoController::class, 'destroy'])->whereNumber('id');
 });

@@ -79,6 +79,13 @@ class RoleService
 
     public function delete(Role $role): void
     {
+        if ($role->empleados()->exists()) {
+            throw new HttpException(
+                422,
+                'No se puede eliminar el rol porque tiene empleados ligados.',
+            );
+        }
+
         $role->delete();
     }
 }
