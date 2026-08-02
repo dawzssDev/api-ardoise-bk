@@ -7,6 +7,7 @@ use App\Models\Negocio;
 use App\Models\User;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
@@ -103,9 +104,13 @@ class EmpleadoService
             unset($data['image']);
         }
 
-        $empleado->fill($data);
-        $empleado->updated_by = $user->id;
-        $empleado->save();
+        DB::transaction(function () use ($empleado, $user, $data): void {
+            $empleado->fill($data);
+            $empleado->updated_by = $user->id;
+            $empleado->save();
+
+            $this->syncStaffFromEmpleado($empleado, $user);
+        });
 
         return $empleado->refresh()->load([
             'sucursal:id,negocio_id,type,name',
@@ -113,6 +118,37 @@ class EmpleadoService
             'createdBy:id,name,email',
             'updatedBy:id,name,email',
         ]);
+    }
+
+    /**
+     * Si el personal tiene usuario staff, alinea sucursal y rol.
+     */
+    private function syncStaffFromEmpleado(Empleado $empleado, User $user): void
+    {
+        $staff = $empleado->staff;
+
+        if (! $staff) {
+            return;
+        }
+
+        $dirty = false;
+
+        if ((int) $staff->sucursal_id !== (int) $empleado->sucursal_id) {
+            $staff->sucursal_id = $empleado->sucursal_id;
+            $dirty = true;
+        }
+
+        if ((int) $staff->role_id !== (int) $empleado->role_id) {
+            $staff->role_id = $empleado->role_id;
+            $dirty = true;
+        }
+
+        if (! $dirty) {
+            return;
+        }
+
+        $staff->updated_by = $user->id;
+        $staff->save();
     }
 
     public function setStatus(Empleado $empleado, User $user, string $status): Empleado
@@ -131,6 +167,13 @@ class EmpleadoService
 
     public function delete(Empleado $empleado): void
     {
+        if ($empleado->staff()->exists()) {
+            throw new HttpException(
+                422,
+                'No se puede eliminar el empleado porque tiene un usuario staff asignado.'
+            );
+        }
+
         $this->deleteImage($empleado->image);
         $empleado->delete();
     }

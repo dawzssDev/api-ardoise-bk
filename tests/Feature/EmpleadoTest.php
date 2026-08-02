@@ -84,4 +84,83 @@ class EmpleadoTest extends TestCase
             'role_id' => $role->id,
         ]);
     }
+
+    public function test_updating_empleado_sucursal_or_role_syncs_linked_staff(): void
+    {
+        $user = User::factory()->create();
+        $negocio = $user->negocio()->create([
+            'name' => 'Negocio Test',
+            'phone' => '6670000000',
+            'needs_invoice' => false,
+        ]);
+
+        $sucursalCentro = $negocio->sucursales()->create([
+            'type' => Sucursal::TYPE_SUCURSAL,
+            'name' => 'Centro',
+            'is_active' => true,
+        ]);
+
+        $sucursalNorte = $negocio->sucursales()->create([
+            'type' => Sucursal::TYPE_SUCURSAL,
+            'name' => 'Norte',
+            'is_active' => true,
+        ]);
+
+        $roleCajero = $negocio->roles()->create([
+            'name' => 'Cajero',
+            'permissions' => Role::defaultPermissions(),
+            'status' => true,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        $roleGerente = $negocio->roles()->create([
+            'name' => 'Gerente',
+            'permissions' => Role::defaultPermissions(),
+            'status' => true,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        $empleado = $negocio->empleados()->create([
+            'sucursal_id' => $sucursalCentro->id,
+            'role_id' => $roleCajero->id,
+            'first_name' => 'Ana',
+            'paternal_surname' => 'Ruiz',
+            'employee_number' => 'EMP-010',
+            'status' => 'activo',
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        $staff = $negocio->staff()->create([
+            'username' => 'ana.ruiz',
+            'password' => 'secreto123',
+            'sucursal_id' => $sucursalCentro->id,
+            'role_id' => $roleCajero->id,
+            'empleado_id' => $empleado->id,
+            'status' => true,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->putJson("/api/empleados/{$empleado->id}", [
+            'sucursal_id' => $sucursalNorte->id,
+            'role_id' => $roleGerente->id,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.empleado.sucursal_id', $sucursalNorte->id)
+            ->assertJsonPath('data.empleado.role_id', $roleGerente->id);
+
+        $this->assertDatabaseHas('staff', [
+            'id' => $staff->id,
+            'sucursal_id' => $sucursalNorte->id,
+            'role_id' => $roleGerente->id,
+            'updated_by' => $user->id,
+        ]);
+    }
 }

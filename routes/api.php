@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\PasswordResetController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\ProductoController;
 use App\Http\Controllers\Api\RoleController;
+use App\Http\Controllers\Api\StaffController;
 use App\Http\Controllers\Api\StockInsumoController;
 use App\Http\Controllers\Api\StripeWebhookController;
 use App\Http\Controllers\Api\SubscriptionController;
@@ -120,4 +121,12 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::put('/empleados/{id}', [EmpleadoController::class, 'update'])->whereNumber('id');
     Route::put('/empleados/{id}/status', [EmpleadoController::class, 'setStatus'])->whereNumber('id');
     Route::delete('/empleados/{id}', [EmpleadoController::class, 'destroy'])->whereNumber('id');
+
+    // Usuarios staff (operativos; separados de users maestros)
+    Route::get('/staff', [StaffController::class, 'index']);
+    Route::post('/staff', [StaffController::class, 'store']);
+    Route::get('/staff/{id}', [StaffController::class, 'show'])->whereNumber('id');
+    Route::put('/staff/{id}', [StaffController::class, 'update'])->whereNumber('id');
+    Route::put('/staff/{id}/status', [StaffController::class, 'setStatus'])->whereNumber('id');
+    Route::delete('/staff/{id}', [StaffController::class, 'destroy'])->whereNumber('id');
 });
