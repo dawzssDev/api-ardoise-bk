@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\NegocioController;
 use App\Http\Controllers\Api\PasswordResetController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\ProductoController;
+use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\StockInsumoController;
 use App\Http\Controllers\Api\StripeWebhookController;
 use App\Http\Controllers\Api\SubscriptionController;
@@ -100,4 +101,12 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/productos/{id}', [ProductoController::class, 'update'])->whereNumber('id');
     Route::put('/productos/{id}', [ProductoController::class, 'update'])->whereNumber('id');
     Route::delete('/productos/{id}', [ProductoController::class, 'destroy'])->whereNumber('id');
+
+    // Roles del negocio (throttle:api = máx. 60 req/min)
+    Route::get('/roles', [RoleController::class, 'index']);
+    Route::post('/roles', [RoleController::class, 'store']);
+    Route::get('/roles/{id}', [RoleController::class, 'show'])->whereNumber('id');
+    Route::put('/roles/{id}', [RoleController::class, 'update'])->whereNumber('id');
+    Route::put('/roles/{id}/status', [RoleController::class, 'setStatus'])->whereNumber('id');
+    Route::delete('/roles/{id}', [RoleController::class, 'destroy'])->whereNumber('id');
 });

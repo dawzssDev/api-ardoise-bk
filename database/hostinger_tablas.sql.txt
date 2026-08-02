@@ -431,6 +431,43 @@ CREATE TABLE `stock_insumos` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
+--------------------------------------------------------------------------------
+1i) roles  (roles por negocio + permisos JSON + auditoría)
+--------------------------------------------------------------------------------
+-- Equivalencias:
+--   nameRole        → name
+--   empresaid       → negocio_id
+--   permisosAccess  → permissions (JSON array)
+--   status          → status
+--   fechaCreation   → created_at
+--   usercreation    → created_by
+--   fechaupdate     → updated_at
+--   userupdate      → updated_by
+CREATE TABLE `roles` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `negocio_id` bigint UNSIGNED NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `permissions` json NULL DEFAULT NULL,
+  `status` tinyint(1) NOT NULL DEFAULT 1,
+  `created_by` bigint UNSIGNED NOT NULL,
+  `updated_by` bigint UNSIGNED NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `roles_negocio_id_name_unique` (`negocio_id`, `name`),
+  KEY `roles_negocio_id_foreign` (`negocio_id`),
+  KEY `roles_created_by_foreign` (`created_by`),
+  KEY `roles_updated_by_foreign` (`updated_by`),
+  KEY `roles_negocio_id_status_index` (`negocio_id`, `status`),
+  CONSTRAINT `roles_negocio_id_foreign`
+    FOREIGN KEY (`negocio_id`) REFERENCES `negocios` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `roles_created_by_foreign`
+    FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `roles_updated_by_foreign`
+    FOREIGN KEY (`updated_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
 ================================================================================
 RESUMEN (orden de creación)
 ================================================================================
@@ -443,6 +480,8 @@ RESUMEN (orden de creación)
  1f. categoria_productos ← FK a negocios
  1g. productos           ← FK a negocios + categoria_productos + users
  1h. stock_insumos       ← FK a negocios + sucursales + insumos + users
+ 1i. roles               ← FK a negocios + users
+
  2. password_reset_tokens
  3. sessions
  4. cache

@@ -1,0 +1,101 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+class Role extends Model
+{
+    protected $table = 'roles';
+
+    public const PERMISSION_KEYS = [
+        'pos',
+        'kitchen',
+        'branch_inventory',
+        'central_warehouse',
+        'branches',
+        'insumos',
+        'stock_insumos',
+        'products',
+        'finance',
+        'staff',
+        'supply_requests',
+        'business',
+        'users',
+        'roles_permissions',
+    ];
+
+    protected $fillable = [
+        'negocio_id',
+        'name',
+        'permissions',
+        'status',
+        'created_by',
+        'updated_by',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'permissions' => 'array',
+            'status' => 'boolean',
+        ];
+    }
+
+    /**
+     * Mapa completo de permisos (clave => bool), faltantes en false.
+     *
+     * @param  array<string, mixed>|null  $permissions
+     * @return array<string, bool>
+     */
+    public static function normalizePermissions(?array $permissions): array
+    {
+        $normalized = [];
+
+        foreach (self::PERMISSION_KEYS as $key) {
+            $normalized[$key] = self::toBool($permissions[$key] ?? false);
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * Mapa por defecto: todos en false.
+     *
+     * @return array<string, bool>
+     */
+    public static function defaultPermissions(): array
+    {
+        return self::normalizePermissions([]);
+    }
+
+    private static function toBool(mixed $value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        $normalized = strtolower(trim((string) $value));
+
+        return match ($normalized) {
+            '1', 'true', 'on', 'yes', 'si', 'sí' => true,
+            default => false,
+        };
+    }
+
+    public function negocio(): BelongsTo
+    {
+        return $this->belongsTo(Negocio::class);
+    }
+
+    public function createdBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function updatedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'updated_by');
+    }
+}
