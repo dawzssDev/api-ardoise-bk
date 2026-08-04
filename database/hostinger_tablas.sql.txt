@@ -623,6 +623,110 @@ CREATE TABLE `staff` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
+--------------------------------------------------------------------------------
+1l) ordenes  (POS — encabezado)
+--------------------------------------------------------------------------------
+-- Equivalencias:
+--   NumeroOrden  → order_number (se formatea a 6 dígitos: 000001)
+--   NombreCliente→ customer_name
+--   EmpresaID    → negocio_id
+--   SucursalID   → sucursal_id
+--   TipoPAGO     → payment_type (credito|transferencia|efectivo)
+--   TotalPago    → total
+--   Estatus      → status (1=pendiente, 2=pagada, 3=cancelada, 4=en_cocina, 5=lista, 6=entregada)
+--   staff que creó / avanzó / finalizó → created_by_staff_id / advanced_by_staff_id / finished_by_staff_id
+CREATE TABLE `ordenes` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `order_number` int UNSIGNED NOT NULL,
+  `negocio_id` bigint UNSIGNED NOT NULL,
+  `sucursal_id` bigint UNSIGNED NOT NULL,
+  `customer_name` varchar(255) NOT NULL,
+  `payment_type` varchar(30) NOT NULL,
+  `total` decimal(10,2) NOT NULL DEFAULT 0.00,
+  `status` tinyint UNSIGNED NOT NULL DEFAULT 1,
+  `created_by_staff_id` bigint UNSIGNED NULL DEFAULT NULL,
+  `advanced_by_staff_id` bigint UNSIGNED NULL DEFAULT NULL,
+  `finished_by_staff_id` bigint UNSIGNED NULL DEFAULT NULL,
+  `advanced_at` timestamp NULL DEFAULT NULL,
+  `finished_at` timestamp NULL DEFAULT NULL,
+  `created_by` bigint UNSIGNED NULL DEFAULT NULL,
+  `updated_by` bigint UNSIGNED NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `ordenes_negocio_id_order_number_unique` (`negocio_id`, `order_number`),
+  KEY `ordenes_negocio_id_foreign` (`negocio_id`),
+  KEY `ordenes_sucursal_id_foreign` (`sucursal_id`),
+  KEY `ordenes_created_by_staff_id_foreign` (`created_by_staff_id`),
+  KEY `ordenes_advanced_by_staff_id_foreign` (`advanced_by_staff_id`),
+  KEY `ordenes_finished_by_staff_id_foreign` (`finished_by_staff_id`),
+  KEY `ordenes_created_by_foreign` (`created_by`),
+  KEY `ordenes_updated_by_foreign` (`updated_by`),
+  KEY `ordenes_negocio_id_status_index` (`negocio_id`, `status`),
+  KEY `ordenes_negocio_id_sucursal_id_index` (`negocio_id`, `sucursal_id`),
+  KEY `ordenes_negocio_id_created_at_index` (`negocio_id`, `created_at`),
+  CONSTRAINT `ordenes_negocio_id_foreign`
+    FOREIGN KEY (`negocio_id`) REFERENCES `negocios` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `ordenes_sucursal_id_foreign`
+    FOREIGN KEY (`sucursal_id`) REFERENCES `sucursales` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `ordenes_created_by_staff_id_foreign`
+    FOREIGN KEY (`created_by_staff_id`) REFERENCES `staff` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `ordenes_advanced_by_staff_id_foreign`
+    FOREIGN KEY (`advanced_by_staff_id`) REFERENCES `staff` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `ordenes_finished_by_staff_id_foreign`
+    FOREIGN KEY (`finished_by_staff_id`) REFERENCES `staff` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `ordenes_created_by_foreign`
+    FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `ordenes_updated_by_foreign`
+    FOREIGN KEY (`updated_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+--------------------------------------------------------------------------------
+1m) orden_detalles  (POS — líneas)
+--------------------------------------------------------------------------------
+-- Equivalencias:
+--   ProductoID     → producto_id
+--   NombrePedido   → product_name
+--   Cantidad       → quantity
+--   Precio         → price
+--   Extras         → extras (JSON)
+--   Observaciones  → notes
+--   Estatus        → status (1=pendiente, 2=en_preparacion, 3=listo, 4=entregado, 5=cancelado)
+--   staff cocina   → advanced_by_staff_id / finished_by_staff_id
+CREATE TABLE `orden_detalles` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `orden_id` bigint UNSIGNED NOT NULL,
+  `producto_id` bigint UNSIGNED NOT NULL,
+  `product_name` varchar(255) NOT NULL,
+  `quantity` decimal(10,3) NOT NULL,
+  `price` decimal(10,2) NOT NULL,
+  `extras` json NULL DEFAULT NULL,
+  `notes` varchar(500) NULL DEFAULT NULL,
+  `status` tinyint UNSIGNED NOT NULL DEFAULT 1,
+  `advanced_by_staff_id` bigint UNSIGNED NULL DEFAULT NULL,
+  `finished_by_staff_id` bigint UNSIGNED NULL DEFAULT NULL,
+  `advanced_at` timestamp NULL DEFAULT NULL,
+  `finished_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `orden_detalles_orden_id_foreign` (`orden_id`),
+  KEY `orden_detalles_producto_id_foreign` (`producto_id`),
+  KEY `orden_detalles_advanced_by_staff_id_foreign` (`advanced_by_staff_id`),
+  KEY `orden_detalles_finished_by_staff_id_foreign` (`finished_by_staff_id`),
+  KEY `orden_detalles_orden_id_status_index` (`orden_id`, `status`),
+  CONSTRAINT `orden_detalles_orden_id_foreign`
+    FOREIGN KEY (`orden_id`) REFERENCES `ordenes` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `orden_detalles_producto_id_foreign`
+    FOREIGN KEY (`producto_id`) REFERENCES `productos` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `orden_detalles_advanced_by_staff_id_foreign`
+    FOREIGN KEY (`advanced_by_staff_id`) REFERENCES `staff` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `orden_detalles_finished_by_staff_id_foreign`
+    FOREIGN KEY (`finished_by_staff_id`) REFERENCES `staff` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
 ================================================================================
 RESUMEN (orden de creación)
 ================================================================================
@@ -639,6 +743,8 @@ RESUMEN (orden de creación)
  1i. roles               ← FK a negocios + users
  1j. empleados           ← FK a negocios + sucursales + roles + users
  1k. staff               ← FK a negocios + sucursales + roles + empleados + users
+ 1l. ordenes             ← FK a negocios + sucursales + users
+ 1m. orden_detalles      ← FK a ordenes + productos
  2. password_reset_tokens
  3. sessions
  4. cache

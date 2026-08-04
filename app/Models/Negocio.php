@@ -78,4 +78,9 @@ class Negocio extends Model
     {
         return $this->hasMany(Staff::class);
     }
+
+    public function ordenes(): HasMany
+    {
+        return $this->hasMany(Orden::class);
+    }
 }

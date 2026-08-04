@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\EmpleadoController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\InsumoController;
 use App\Http\Controllers\Api\NegocioController;
+use App\Http\Controllers\Api\OrdenController;
 use App\Http\Controllers\Api\PasswordResetController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\ProductoController;
@@ -141,4 +142,13 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         Route::put('/staff/{id}/status', [StaffController::class, 'setStatus'])->whereNumber('id');
         Route::delete('/staff/{id}', [StaffController::class, 'destroy'])->whereNumber('id');
     });
+
+    // Órdenes POS (header + detalle)
+    Route::get('/ordenes', [OrdenController::class, 'index']);
+    Route::post('/ordenes', [OrdenController::class, 'store']);
+    Route::get('/ordenes/{id}', [OrdenController::class, 'show'])->whereNumber('id');
+    Route::put('/ordenes/{id}/status', [OrdenController::class, 'setStatus'])->whereNumber('id');
+    Route::put('/ordenes/{id}/detalles/{detalleId}/status', [OrdenController::class, 'setDetalleStatus'])
+        ->whereNumber('id')
+        ->whereNumber('detalleId');
 });
