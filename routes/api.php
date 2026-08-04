@@ -24,7 +24,14 @@ use Illuminate\Support\Facades\Route;
 // Endpoint público de salud (prefijo /api ya aplicado por el framework)
 Route::get('/health', HealthController::class);
 
+// Registro diferido: cuenta solo se crea tras confirmar pago
 Route::post('/auth/register', [AuthController::class, 'register'])
+    ->middleware('throttle:register');
+Route::get('/auth/register/plans', [AuthController::class, 'registerPlans'])
+    ->middleware('throttle:register');
+Route::post('/auth/register/checkout', [AuthController::class, 'registerCheckout'])
+    ->middleware('throttle:register');
+Route::post('/auth/register/complete', [AuthController::class, 'registerComplete'])
     ->middleware('throttle:register');
 
 Route::post('/auth/login', [AuthController::class, 'login'])

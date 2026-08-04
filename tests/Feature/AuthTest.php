@@ -13,31 +13,35 @@ class AuthTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_user_can_register_successfully(): void
+    public function test_register_creates_pending_registration_not_user(): void
     {
         $response = $this->postJson('/api/auth/register', [
             'name' => 'Luis Pérez',
+            'business_name' => 'Negocio Luis',
             'email' => 'luis@example.com',
+            'phone' => '6670000000',
             'password' => 'password123',
             'password_confirmation' => 'password123',
+            'terms_accepted' => true,
         ]);
 
         $response->assertCreated()
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data.user.email', 'luis@example.com')
-            ->assertJsonPath('data.token_type', 'Bearer')
+            ->assertJsonPath('data.email', 'luis@example.com')
+            ->assertJsonPath('data.user', null)
+            ->assertJsonPath('data.token', null)
             ->assertJsonStructure([
                 'success',
                 'message',
                 'data' => [
-                    'user' => ['id', 'name', 'email', 'created_at'],
-                    'token',
-                    'token_type',
+                    'registration_token',
+                    'expires_at',
+                    'email',
                 ],
                 'errors',
             ]);
 
-        $this->assertDatabaseHas('users', [
+        $this->assertDatabaseMissing('users', [
             'email' => 'luis@example.com',
         ]);
     }

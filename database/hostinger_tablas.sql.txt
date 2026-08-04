@@ -41,6 +41,48 @@ CREATE TABLE `users` (
 
 
 --------------------------------------------------------------------------------
+1a) pending_registrations  (alta diferida: User solo tras pago)
+--------------------------------------------------------------------------------
+-- Flujo:
+--   POST /auth/register          → guarda pendiente (sin users)
+--   POST /auth/register/checkout → Stripe subscription + client_secret
+--   POST /auth/register/complete → crea users + negocios si pago OK
+CREATE TABLE `pending_registrations` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `token` char(36) NOT NULL,
+  `email` varchar(255) NOT NULL,
+  `password` varchar(255) NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `business_name` varchar(255) NOT NULL,
+  `phone` varchar(30) NOT NULL,
+  `needs_invoice` tinyint(1) NOT NULL DEFAULT 0,
+  `rfc` varchar(13) NULL DEFAULT NULL,
+  `legal_name` varchar(255) NULL DEFAULT NULL,
+  `tax_regime` varchar(10) NULL DEFAULT NULL,
+  `tax_zip` varchar(10) NULL DEFAULT NULL,
+  `cfdi_use` varchar(10) NULL DEFAULT NULL,
+  `stripe_customer_id` varchar(255) NULL DEFAULT NULL,
+  `stripe_subscription_id` varchar(255) NULL DEFAULT NULL,
+  `stripe_price_id` varchar(255) NULL DEFAULT NULL,
+  `status` varchar(30) NOT NULL DEFAULT 'pending',
+  `expires_at` timestamp NOT NULL,
+  `completed_at` timestamp NULL DEFAULT NULL,
+  `user_id` bigint UNSIGNED NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `pending_registrations_token_unique` (`token`),
+  KEY `pending_registrations_email_status_index` (`email`, `status`),
+  KEY `pending_registrations_expires_at_index` (`expires_at`),
+  KEY `pending_registrations_stripe_customer_id_index` (`stripe_customer_id`),
+  KEY `pending_registrations_stripe_subscription_id_index` (`stripe_subscription_id`),
+  KEY `pending_registrations_user_id_foreign` (`user_id`),
+  CONSTRAINT `pending_registrations_user_id_foreign`
+    FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+--------------------------------------------------------------------------------
 2) password_reset_tokens
 --------------------------------------------------------------------------------
 CREATE TABLE `password_reset_tokens` (
@@ -586,6 +628,7 @@ RESUMEN (orden de creación)
 ================================================================================
  0. migrations
  1. users
+ 1a. pending_registrations ← alta diferida (FK opcional a users al completar)
  1b. negocios           ← FK a users (usuario maestro)
  1c. sucursales         ← FK a negocios
  1d. categoria_insumos   ← FK a negocios

@@ -3,10 +3,12 @@
 namespace App\Services;
 
 use App\Models\Payment;
+use App\Models\PendingRegistration;
 use App\Models\Subscription;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Stripe\Exception\ApiErrorException;
 use Stripe\Exception\SignatureVerificationException;
 use Stripe\PaymentIntent;
@@ -51,6 +53,157 @@ class StripeService
         ])->save();
 
         return $customer->id;
+    }
+
+    /**
+     * Customer Stripe ligado a un registro pendiente (aún sin User).
+     *
+     * @throws ApiErrorException
+     */
+    public function getOrCreateCustomerForPending(PendingRegistration $pending): string
+    {
+        if ($pending->stripe_customer_id) {
+            return $pending->stripe_customer_id;
+        }
+
+        $customer = $this->client()->customers->create([
+            'email' => $pending->email,
+            'name' => $pending->name,
+            'metadata' => [
+                'pending_registration_id' => (string) $pending->id,
+                'pending_registration_token' => $pending->token,
+            ],
+        ]);
+
+        $pending->forceFill([
+            'stripe_customer_id' => $customer->id,
+        ])->save();
+
+        return $customer->id;
+    }
+
+    /**
+     * Suscripción incomplete para onboarding sin User.
+     *
+     * @throws ApiErrorException
+     */
+    public function createSubscriptionForPending(
+        PendingRegistration $pending,
+        string $priceId,
+    ): StripeSubscription {
+        return DB::transaction(function () use ($pending, $priceId) {
+            PendingRegistration::query()->whereKey($pending->id)->lockForUpdate()->first();
+            $pending->refresh();
+
+            if (
+                $pending->stripe_subscription_id
+                && $pending->stripe_price_id === $priceId
+            ) {
+                $existing = $this->client()->subscriptions->retrieve(
+                    $pending->stripe_subscription_id,
+                    ['expand' => ['latest_invoice.payment_intent', 'pending_setup_intent']],
+                );
+
+                if (in_array($existing->status, ['incomplete', 'trialing', 'active', 'past_due'], true)) {
+                    return $existing;
+                }
+            }
+
+            $customerId = $this->getOrCreateCustomerForPending($pending);
+            $trialDays = $this->trialDays();
+
+            $params = [
+                'customer' => $customerId,
+                'items' => [
+                    ['price' => $priceId],
+                ],
+                'payment_behavior' => 'default_incomplete',
+                'payment_settings' => [
+                    'save_default_payment_method' => 'on_subscription',
+                ],
+                'expand' => ['latest_invoice.payment_intent', 'pending_setup_intent'],
+                'metadata' => [
+                    'pending_registration_id' => (string) $pending->id,
+                    'pending_registration_token' => $pending->token,
+                ],
+            ];
+
+            if ($trialDays > 0) {
+                $params['trial_period_days'] = $trialDays;
+                $params['trial_settings'] = [
+                    'end_behavior' => [
+                        'missing_payment_method' => 'cancel',
+                    ],
+                ];
+            }
+
+            $subscription = $this->client()->subscriptions->create($params);
+
+            $pending->forceFill([
+                'stripe_customer_id' => $customerId,
+                'stripe_subscription_id' => $subscription->id,
+                'stripe_price_id' => $priceId,
+                'status' => PendingRegistration::STATUS_CHECKOUT,
+            ])->save();
+
+            return $subscription;
+        });
+    }
+
+    /**
+     * True si la suscripción ya permite crear la cuenta (pago/setup confirmado).
+     *
+     * @throws ApiErrorException
+     */
+    public function isSubscriptionReadyForRegistration(string $stripeSubscriptionId): bool
+    {
+        $subscription = $this->client()->subscriptions->retrieve($stripeSubscriptionId);
+
+        return in_array($subscription->status, ['trialing', 'active'], true);
+    }
+
+    /**
+     * Vincula metadata del Customer a un User recién creado.
+     *
+     * @throws ApiErrorException
+     */
+    public function attachUserToCustomer(string $stripeCustomerId, User $user): void
+    {
+        try {
+            $this->client()->customers->update($stripeCustomerId, [
+                'metadata' => [
+                    'user_id' => (string) $user->id,
+                ],
+            ]);
+        } catch (ApiErrorException $e) {
+            Log::warning('No se pudo actualizar metadata del customer Stripe', [
+                'customer_id' => $stripeCustomerId,
+                'user_id' => $user->id,
+                'message' => $e->getMessage(),
+            ]);
+        }
+
+        if (! $user->stripe_customer_id) {
+            $user->forceFill(['stripe_customer_id' => $stripeCustomerId])->save();
+        }
+    }
+
+    /**
+     * Vincula metadata de la suscripción y crea el espejo local.
+     *
+     * @throws ApiErrorException
+     */
+    public function attachUserToSubscription(string $stripeSubscriptionId, User $user): void
+    {
+        $subscription = $this->client()->subscriptions->update($stripeSubscriptionId, [
+            'metadata' => [
+                'user_id' => (string) $user->id,
+            ],
+        ]);
+
+        // Rehidratar con items/price para sync
+        $subscription = $this->client()->subscriptions->retrieve($subscription->id);
+        $this->syncSubscriptionFromStripe($subscription);
     }
 
     /**

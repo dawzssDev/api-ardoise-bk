@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Jobs\HandleStripeWebhookSideEffect;
 use App\Models\Payment;
 use App\Models\StripeEvent;
+use App\Services\RegisterService;
 use App\Services\StripeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,6 +19,7 @@ class StripeWebhookController extends Controller
 {
     public function __construct(
         private readonly StripeService $stripe,
+        private readonly RegisterService $registerService,
     ) {}
 
     /**
@@ -97,9 +99,17 @@ class StripeWebhookController extends Controller
                 $subscription = $this->stripe->retrieveSubscription($subscription->id);
             }
 
+            // Onboarding: crear User si el pago/setup ya quedó confirmado
+            $this->registerService->completeFromStripeSubscription($subscription->id);
+
             $this->stripe->syncSubscriptionFromStripe($subscription);
         } catch (ApiErrorException $e) {
             Log::error('Stripe webhook subscription sync failed', [
+                'message' => $e->getMessage(),
+                'subscription_id' => $subscription->id ?? null,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Stripe webhook pending registration finalize failed', [
                 'message' => $e->getMessage(),
                 'subscription_id' => $subscription->id ?? null,
             ]);
@@ -117,10 +127,17 @@ class StripeWebhookController extends Controller
         }
 
         try {
+            $this->registerService->completeFromStripeSubscription($subscriptionId);
+
             $subscription = $this->stripe->retrieveSubscription($subscriptionId);
             $this->stripe->syncSubscriptionFromStripe($subscription);
         } catch (ApiErrorException $e) {
             Log::error('Stripe webhook invoice subscription sync failed', [
+                'message' => $e->getMessage(),
+                'subscription_id' => $subscriptionId,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Stripe webhook pending registration finalize failed', [
                 'message' => $e->getMessage(),
                 'subscription_id' => $subscriptionId,
             ]);
