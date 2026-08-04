@@ -103,6 +103,7 @@ class StripeTest extends TestCase
                     'client_secret' => 'seti_test_123_secret',
                     'payment_intent_id' => 'seti_test_123',
                     'subscription_id' => 'sub_from_intent',
+                    'intent_type' => 'setup_intent',
                 ]);
 
             $mock->shouldReceive('trialDays')
@@ -255,6 +256,7 @@ class StripeTest extends TestCase
                     'client_secret' => 'pi_sub_test_secret',
                     'payment_intent_id' => 'pi_sub_test',
                     'subscription_id' => 'sub_test_123',
+                    'intent_type' => 'payment_intent',
                 ]);
 
             $mock->shouldReceive('trialDays')
@@ -310,6 +312,7 @@ class StripeTest extends TestCase
                     'client_secret' => 'seti_sub_secret',
                     'payment_intent_id' => 'seti_sub_123',
                     'subscription_id' => 'sub_plan_id_123',
+                    'intent_type' => 'setup_intent',
                 ]);
 
             $mock->shouldReceive('trialDays')

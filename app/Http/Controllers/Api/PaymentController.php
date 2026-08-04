@@ -100,6 +100,10 @@ class PaymentController extends Controller
             ], 502);
         }
 
+        $trialDays = $this->stripe->trialDays();
+        $intentType = $secrets['intent_type']
+            ?? $this->stripe->detectIntentType($secrets['client_secret']);
+
         return response()->json([
             'success' => true,
             'message' => 'Suscripción creada.',
@@ -108,7 +112,9 @@ class PaymentController extends Controller
                 'payment_intent_id' => $secrets['payment_intent_id'],
                 'subscription_id' => $secrets['subscription_id'],
                 'plan_id' => $planId,
-                'trial_days' => $this->stripe->trialDays(),
+                'trial_days' => $trialDays,
+                'intent_type' => $intentType,
+                'charge_today' => $trialDays <= 0,
             ],
             'errors' => null,
         ], 201);

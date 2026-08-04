@@ -150,8 +150,10 @@ class RegisterDeferredTest extends TestCase
                     'client_secret' => 'seti_or_pi_1_secret',
                     'payment_intent_id' => 'seti_or_pi_1',
                     'subscription_id' => 'sub_pending_1',
+                    'intent_type' => 'setup_intent',
                 ]);
 
+            $mock->shouldReceive('detectIntentType')->andReturn('setup_intent');
             $mock->shouldReceive('trialDays')->andReturn(14);
 
             $mock->shouldReceive('isSubscriptionReadyForRegistration')

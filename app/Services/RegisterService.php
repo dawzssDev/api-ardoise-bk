@@ -119,7 +119,9 @@ class RegisterService
      *     payment_intent_id: string,
      *     subscription_id: string,
      *     plan_id: string,
-     *     trial_days: int
+     *     trial_days: int,
+     *     intent_type: 'payment_intent'|'setup_intent',
+     *     charge_today: bool
      * }
      *
      * @throws ApiErrorException
@@ -154,13 +156,19 @@ class RegisterService
         // Refrescar customer id por si se creó en StripeService
         $pending->refresh();
 
+        $intentType = $secrets['intent_type']
+            ?? $this->stripe->detectIntentType($secrets['client_secret']);
+        $trialDays = $this->stripe->trialDays();
+
         return [
             'pending' => $pending,
             'client_secret' => $secrets['client_secret'],
             'payment_intent_id' => $secrets['payment_intent_id'],
             'subscription_id' => $secrets['subscription_id'],
             'plan_id' => $priceId,
-            'trial_days' => $this->stripe->trialDays(),
+            'trial_days' => $trialDays,
+            'intent_type' => $intentType,
+            'charge_today' => $trialDays <= 0,
         ];
     }
 

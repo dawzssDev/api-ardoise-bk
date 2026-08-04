@@ -83,6 +83,20 @@ class StripeService
     }
 
     /**
+     * Expands para Billing API Basil+ (confirmation_secret) y trial (setup intent).
+     * NO expandir latest_invoice.payment_intent: en Basil ese campo ya no existe y rompe el request.
+     *
+     * @return list<string>
+     */
+    private function subscriptionSecretExpands(): array
+    {
+        return [
+            'latest_invoice.confirmation_secret',
+            'pending_setup_intent',
+        ];
+    }
+
+    /**
      * Suscripción incomplete para onboarding sin User.
      *
      * @throws ApiErrorException
@@ -99,13 +113,46 @@ class StripeService
                 $pending->stripe_subscription_id
                 && $pending->stripe_price_id === $priceId
             ) {
-                $existing = $this->client()->subscriptions->retrieve(
-                    $pending->stripe_subscription_id,
-                    ['expand' => ['latest_invoice.payment_intent', 'pending_setup_intent']],
-                );
+                try {
+                    $existing = $this->client()->subscriptions->retrieve(
+                        $pending->stripe_subscription_id,
+                        ['expand' => $this->subscriptionSecretExpands()],
+                    );
+                } catch (ApiErrorException $e) {
+                    Log::warning('No se pudo reutilizar suscripción pending', [
+                        'subscription_id' => $pending->stripe_subscription_id,
+                        'message' => $e->getMessage(),
+                    ]);
+                    $existing = null;
+                }
 
-                if (in_array($existing->status, ['incomplete', 'trialing', 'active', 'past_due'], true)) {
-                    return $existing;
+                if ($existing !== null) {
+                    if (in_array($existing->status, ['trialing', 'active', 'past_due'], true)) {
+                        return $existing;
+                    }
+
+                    // Incomplete reusable solo si aún podemos obtener client_secret.
+                    if ($existing->status === 'incomplete'
+                        && $this->extractSubscriptionClientSecret($existing) !== null
+                    ) {
+                        return $existing;
+                    }
+
+                    // Incomplete “rota” (sin secret): cancelar y crear una nueva.
+                    if (in_array($existing->status, ['incomplete', 'incomplete_expired'], true)) {
+                        try {
+                            $this->client()->subscriptions->cancel($existing->id);
+                        } catch (ApiErrorException $e) {
+                            Log::warning('No se pudo cancelar suscripción incomplete previa', [
+                                'subscription_id' => $existing->id,
+                                'message' => $e->getMessage(),
+                            ]);
+                        }
+
+                        $pending->forceFill([
+                            'stripe_subscription_id' => null,
+                        ])->save();
+                    }
                 }
             }
 
@@ -121,7 +168,7 @@ class StripeService
                 'payment_settings' => [
                     'save_default_payment_method' => 'on_subscription',
                 ],
-                'expand' => ['latest_invoice.payment_intent', 'pending_setup_intent'],
+                'expand' => $this->subscriptionSecretExpands(),
                 'metadata' => [
                     'pending_registration_id' => (string) $pending->id,
                     'pending_registration_token' => $pending->token,
@@ -329,7 +376,7 @@ class StripeService
                 'payment_settings' => [
                     'save_default_payment_method' => 'on_subscription',
                 ],
-                'expand' => ['latest_invoice.payment_intent', 'pending_setup_intent'],
+                'expand' => $this->subscriptionSecretExpands(),
                 'metadata' => [
                     'user_id' => (string) $user->id,
                 ],
@@ -374,7 +421,7 @@ class StripeService
         foreach ($locals as $local) {
             $stripeSub = $this->client()->subscriptions->retrieve(
                 $local->stripe_subscription_id,
-                ['expand' => ['latest_invoice.payment_intent', 'pending_setup_intent']],
+                ['expand' => $this->subscriptionSecretExpands()],
             );
 
             if (! in_array($stripeSub->status, $reusableStatuses, true)) {
@@ -581,38 +628,173 @@ class StripeService
     }
 
     /**
-     * client_secret de la suscripción (PaymentIntent o SetupIntent en trial).
+     * client_secret de la suscripción.
      *
-     * @return array{client_secret: string, payment_intent_id: string, subscription_id: string}|null
+     * Stripe PHP SDK v21+ usa API Basil: Invoice ya NO tiene payment_intent.
+     * Hay que usar latest_invoice.confirmation_secret.client_secret.
+     *
+     * @return array{client_secret: string, payment_intent_id: string, subscription_id: string, intent_type: string}|null
      */
     public function extractSubscriptionClientSecret(StripeSubscription $subscription): ?array
     {
-        $invoice = $subscription->latest_invoice;
-        $paymentIntent = is_object($invoice) ? ($invoice->payment_intent ?? null) : null;
-
-        if (is_object($paymentIntent) && ! empty($paymentIntent->client_secret)) {
-            return [
-                'client_secret' => $paymentIntent->client_secret,
-                'payment_intent_id' => $paymentIntent->id,
+        try {
+            $subscription = $this->client()->subscriptions->retrieve($subscription->id, [
+                'expand' => $this->subscriptionSecretExpands(),
+            ]);
+        } catch (ApiErrorException $e) {
+            Log::warning('No se pudo rehidratar suscripción para client_secret', [
                 'subscription_id' => $subscription->id,
-            ];
+                'message' => $e->getMessage(),
+            ]);
         }
 
-        $setupIntent = $subscription->pending_setup_intent ?? null;
+        $invoice = $subscription->latest_invoice ?? null;
+        $invoiceId = is_object($invoice) ? ($invoice->id ?? null) : (is_string($invoice) ? $invoice : null);
 
+        if (is_string($invoiceId) && $invoiceId !== '') {
+            // Solo confirmation_secret: expandir payment_intent rompe en Basil.
+            try {
+                $invoice = $this->client()->invoices->retrieve($invoiceId, [
+                    'expand' => ['confirmation_secret'],
+                ]);
+            } catch (ApiErrorException $e) {
+                Log::warning('No se pudo rehidratar invoice (confirmation_secret)', [
+                    'invoice_id' => $invoiceId,
+                    'message' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        // 1) Basil+: confirmation_secret (prioridad)
+        $fromConfirmation = $this->secretFromConfirmationSecret(
+            is_object($invoice) ? ($invoice->confirmation_secret ?? null) : null,
+            $subscription->id,
+        );
+        if ($fromConfirmation !== null) {
+            return $fromConfirmation;
+        }
+
+        // 2) Trial: pending_setup_intent
+        $setupIntent = $subscription->pending_setup_intent ?? null;
         if (is_string($setupIntent) && $setupIntent !== '') {
-            $setupIntent = $this->client()->setupIntents->retrieve($setupIntent);
+            try {
+                $setupIntent = $this->client()->setupIntents->retrieve($setupIntent);
+            } catch (ApiErrorException $e) {
+                Log::warning('No se pudo rehidratar SetupIntent de suscripción', [
+                    'setup_intent_id' => $setupIntent,
+                    'message' => $e->getMessage(),
+                ]);
+                $setupIntent = null;
+            }
         }
 
         if (is_object($setupIntent) && ! empty($setupIntent->client_secret)) {
             return [
                 'client_secret' => $setupIntent->client_secret,
-                // El front espera payment_intent_id; en trial usamos el SetupIntent.
                 'payment_intent_id' => $setupIntent->id,
                 'subscription_id' => $subscription->id,
+                'intent_type' => 'setup_intent',
             ];
         }
 
+        // 3) Basil payments[] → payment_intent embebido
+        if (is_string($invoiceId) && $invoiceId !== '') {
+            try {
+                $invoiceWithPayments = $this->client()->invoices->retrieve($invoiceId, [
+                    'expand' => ['payments.data.payment.payment_intent'],
+                ]);
+                $payments = $invoiceWithPayments->payments->data ?? [];
+                foreach ($payments as $paymentRow) {
+                    $pi = $paymentRow->payment->payment_intent ?? null;
+                    if (is_string($pi) && $pi !== '') {
+                        $pi = $this->client()->paymentIntents->retrieve($pi);
+                    }
+                    if (is_object($pi) && ! empty($pi->client_secret)) {
+                        return [
+                            'client_secret' => $pi->client_secret,
+                            'payment_intent_id' => $pi->id,
+                            'subscription_id' => $subscription->id,
+                            'intent_type' => 'payment_intent',
+                        ];
+                    }
+                }
+            } catch (ApiErrorException $e) {
+                Log::warning('No se pudo leer payments de invoice', [
+                    'invoice_id' => $invoiceId,
+                    'message' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        // 4) API antigua (pre-Basil): payment_intent directo
+        if (is_object($invoice)) {
+            $paymentIntent = $invoice->payment_intent ?? null;
+            if (is_string($paymentIntent) && $paymentIntent !== '') {
+                try {
+                    $paymentIntent = $this->client()->paymentIntents->retrieve($paymentIntent);
+                } catch (ApiErrorException) {
+                    $paymentIntent = null;
+                }
+            }
+            if (is_object($paymentIntent) && ! empty($paymentIntent->client_secret)) {
+                return [
+                    'client_secret' => $paymentIntent->client_secret,
+                    'payment_intent_id' => $paymentIntent->id,
+                    'subscription_id' => $subscription->id,
+                    'intent_type' => 'payment_intent',
+                ];
+            }
+        }
+
+        Log::warning('Suscripción sin client_secret usable', [
+            'subscription_id' => $subscription->id,
+            'status' => $subscription->status ?? null,
+            'invoice_id' => $invoiceId,
+            'has_confirmation_secret' => is_object($invoice) && ! empty($invoice->confirmation_secret ?? null),
+            'has_pending_setup_intent' => (bool) ($subscription->pending_setup_intent ?? null),
+            'trial_days' => $this->trialDays(),
+        ]);
+
         return null;
+    }
+
+    /**
+     * @return array{client_secret: string, payment_intent_id: string, subscription_id: string, intent_type: string}|null
+     */
+    private function secretFromConfirmationSecret(mixed $confirmationSecret, string $subscriptionId): ?array
+    {
+        if (! is_object($confirmationSecret) || empty($confirmationSecret->client_secret)) {
+            return null;
+        }
+
+        $secret = (string) $confirmationSecret->client_secret;
+        $intentType = $this->detectIntentType($secret);
+        $intentId = $this->intentIdFromClientSecret($secret) ?? $subscriptionId;
+
+        return [
+            'client_secret' => $secret,
+            'payment_intent_id' => $intentId,
+            'subscription_id' => $subscriptionId,
+            'intent_type' => $intentType,
+        ];
+    }
+
+    /**
+     * @return 'payment_intent'|'setup_intent'
+     */
+    public function detectIntentType(string $clientSecret): string
+    {
+        if (str_starts_with($clientSecret, 'seti_')) {
+            return 'setup_intent';
+        }
+
+        return 'payment_intent';
+    }
+
+    private function intentIdFromClientSecret(string $clientSecret): ?string
+    {
+        $pos = strpos($clientSecret, '_secret');
+
+        return $pos === false ? null : substr($clientSecret, 0, $pos);
     }
 }

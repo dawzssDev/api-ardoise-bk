@@ -154,6 +154,9 @@ class AuthController extends Controller
                 'subscription_id' => $result['subscription_id'],
                 'plan_id' => $result['plan_id'],
                 'trial_days' => $result['trial_days'],
+                // Front: payment_intent → stripe.confirmPayment | setup_intent → stripe.confirmSetup
+                'intent_type' => $result['intent_type'],
+                'charge_today' => $result['charge_today'],
             ],
             'errors' => null,
         ], 201);
