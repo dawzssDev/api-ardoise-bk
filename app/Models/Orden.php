@@ -63,6 +63,11 @@ class Orden extends Model
         'finished_by_staff_id',
         'advanced_at',
         'finished_at',
+        'preparacion_started_at',
+        'listo_at',
+        'seconds_in_nuevo',
+        'seconds_in_preparacion',
+        'seconds_total_listo',
         'created_by',
         'updated_by',
     ];
@@ -75,6 +80,11 @@ class Orden extends Model
             'status' => 'integer',
             'advanced_at' => 'datetime',
             'finished_at' => 'datetime',
+            'preparacion_started_at' => 'datetime',
+            'listo_at' => 'datetime',
+            'seconds_in_nuevo' => 'integer',
+            'seconds_in_preparacion' => 'integer',
+            'seconds_total_listo' => 'integer',
         ];
     }
 

@@ -23,18 +23,18 @@ class OrdenController extends Controller
     {
         try {
             $negocio = $this->ordenes->negocioForUser($request->user());
+            $paginator = $this->ordenes->listForNegocio(
+                $negocio,
+                $request->user(),
+                perPage: (int) $request->integer('per_page', 15),
+                sucursalId: $this->requestSucursalId($request),
+                status: $request->filled('status') ? (int) $request->integer('status') : (
+                    $request->filled('estatus') ? (int) $request->integer('estatus') : null
+                ),
+            );
         } catch (HttpException $e) {
             return $this->errorResponse($e);
         }
-
-        $paginator = $this->ordenes->listForNegocio(
-            $negocio,
-            perPage: (int) $request->integer('per_page', 15),
-            sucursalId: $request->filled('sucursal_id') ? (int) $request->integer('sucursal_id') : null,
-            status: $request->filled('status') ? (int) $request->integer('status') : (
-                $request->filled('estatus') ? (int) $request->integer('estatus') : null
-            ),
-        );
 
         return response()->json([
             'success' => true,
@@ -47,6 +47,44 @@ class OrdenController extends Controller
                     'per_page' => $paginator->perPage(),
                     'total' => $paginator->total(),
                 ],
+            ],
+            'errors' => null,
+        ]);
+    }
+
+    /**
+     * Tablero de cocina (KDS).
+     * Maestro: ?sucursal_id= requerido (selector). Staff: usa su sucursal.
+     */
+    public function cocina(Request $request): JsonResponse
+    {
+        try {
+            $negocio = $this->ordenes->negocioForUser($request->user());
+            $board = $this->ordenes->kitchenBoard(
+                $negocio,
+                $request->user(),
+                $this->requestSucursalId($request),
+            );
+        } catch (HttpException $e) {
+            return $this->errorResponse($e);
+        }
+
+        $nuevo = OrdenResource::collection($board['nuevo'])->resolve();
+        $enPreparacion = OrdenResource::collection($board['en_preparacion'])->resolve();
+        $listo = OrdenResource::collection($board['listo'])->resolve();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'ok',
+            'data' => [
+                'sucursal' => $board['sucursal'],
+                'nuevo' => $nuevo,
+                'en_preparacion' => $enPreparacion,
+                'listo' => $listo,
+                // aliases front
+                'activos' => $nuevo,
+                'en_proceso' => $enPreparacion,
+                'finalizados' => $listo,
             ],
             'errors' => null,
         ]);
@@ -143,6 +181,19 @@ class OrdenController extends Controller
             ],
             'errors' => null,
         ]);
+    }
+
+    private function requestSucursalId(Request $request): ?int
+    {
+        if ($request->filled('sucursal_id')) {
+            return (int) $request->integer('sucursal_id');
+        }
+
+        if ($request->filled('sucursalId')) {
+            return (int) $request->integer('sucursalId');
+        }
+
+        return null;
     }
 
     private function errorResponse(HttpException $e): JsonResponse

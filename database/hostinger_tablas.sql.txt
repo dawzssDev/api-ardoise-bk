@@ -635,6 +635,7 @@ CREATE TABLE `staff` (
 --   TotalPago    → total
 --   Estatus      → status (1=pendiente, 2=pagada, 3=cancelada, 4=en_cocina, 5=lista, 6=entregada)
 --   staff que creó / avanzó / finalizó → created_by_staff_id / advanced_by_staff_id / finished_by_staff_id
+--   tiempos cocina (segundos) → seconds_in_nuevo / seconds_in_preparacion / seconds_total_listo
 CREATE TABLE `ordenes` (
   `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
   `order_number` int UNSIGNED NOT NULL,
@@ -649,12 +650,17 @@ CREATE TABLE `ordenes` (
   `finished_by_staff_id` bigint UNSIGNED NULL DEFAULT NULL,
   `advanced_at` timestamp NULL DEFAULT NULL,
   `finished_at` timestamp NULL DEFAULT NULL,
+  `preparacion_started_at` timestamp NULL DEFAULT NULL,
+  `listo_at` timestamp NULL DEFAULT NULL,
+  `seconds_in_nuevo` int UNSIGNED NULL DEFAULT NULL,
+  `seconds_in_preparacion` int UNSIGNED NULL DEFAULT NULL,
+  `seconds_total_listo` int UNSIGNED NULL DEFAULT NULL,
   `created_by` bigint UNSIGNED NULL DEFAULT NULL,
   `updated_by` bigint UNSIGNED NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `ordenes_negocio_id_order_number_unique` (`negocio_id`, `order_number`),
+  UNIQUE KEY `ordenes_sucursal_id_order_number_unique` (`sucursal_id`, `order_number`),
   KEY `ordenes_negocio_id_foreign` (`negocio_id`),
   KEY `ordenes_sucursal_id_foreign` (`sucursal_id`),
   KEY `ordenes_created_by_staff_id_foreign` (`created_by_staff_id`),
@@ -762,6 +768,21 @@ Si `subscriptions` ya existe sin `trial_ends_at`, ejecuta solo:
 ALTER TABLE `subscriptions`
   ADD COLUMN `trial_ends_at` timestamp NULL DEFAULT NULL
   AFTER `current_period_end`;
+
+Si `ordenes` ya existe sin tiempos de cocina, ejecuta:
+
+ALTER TABLE `ordenes`
+  ADD COLUMN `preparacion_started_at` timestamp NULL DEFAULT NULL AFTER `finished_at`,
+  ADD COLUMN `listo_at` timestamp NULL DEFAULT NULL AFTER `preparacion_started_at`,
+  ADD COLUMN `seconds_in_nuevo` int UNSIGNED NULL DEFAULT NULL AFTER `listo_at`,
+  ADD COLUMN `seconds_in_preparacion` int UNSIGNED NULL DEFAULT NULL AFTER `seconds_in_nuevo`,
+  ADD COLUMN `seconds_total_listo` int UNSIGNED NULL DEFAULT NULL AFTER `seconds_in_preparacion`;
+
+Si el correlativo aún es por negocio, pásalo a por sucursal:
+
+ALTER TABLE `ordenes`
+  DROP INDEX `ordenes_negocio_id_order_number_unique`,
+  ADD UNIQUE KEY `ordenes_sucursal_id_order_number_unique` (`sucursal_id`, `order_number`);
 
 ================================================================================
 NOTA SI USAS php artisan migrate

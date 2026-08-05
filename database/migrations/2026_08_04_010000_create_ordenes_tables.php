@@ -28,7 +28,8 @@ return new class extends Migration
             $table->foreignId('updated_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamps();
 
-            $table->unique(['negocio_id', 'order_number']);
+            // Correlativo independiente por sucursal (#000001 en cada una)
+            $table->unique(['sucursal_id', 'order_number']);
             $table->index(['negocio_id', 'status']);
             $table->index(['negocio_id', 'sucursal_id']);
             $table->index(['negocio_id', 'created_at']);

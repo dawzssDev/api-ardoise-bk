@@ -25,6 +25,27 @@ class Role extends Model
         'business',
         'users',
         'roles_permissions',
+        'nuevoPedido',
+        'enPreparacionPedido',
+        'pedidosListos',
+    ];
+
+    /**
+     * Alias de front / payloads antiguos → clave canónica.
+     *
+     * @var array<string, string>
+     */
+    public const PERMISSION_ALIASES = [
+        'nuevo' => 'nuevoPedido',
+        'nuevo_pedido' => 'nuevoPedido',
+        'new' => 'nuevoPedido',
+        'enPreparacion' => 'enPreparacionPedido',
+        'en_preparacion' => 'enPreparacionPedido',
+        'en_preparacion_pedido' => 'enPreparacionPedido',
+        'listo' => 'pedidosListos',
+        'listos' => 'pedidosListos',
+        'pedidos_listos' => 'pedidosListos',
+        'ready' => 'pedidosListos',
     ];
 
     protected $fillable = [
@@ -52,6 +73,7 @@ class Role extends Model
      */
     public static function normalizePermissions(?array $permissions): array
     {
+        $permissions = self::canonicalizePermissionKeys($permissions ?? []);
         $normalized = [];
 
         foreach (self::PERMISSION_KEYS as $key) {
@@ -59,6 +81,31 @@ class Role extends Model
         }
 
         return $normalized;
+    }
+
+    /**
+     * @param  array<string, mixed>  $permissions
+     * @return array<string, mixed>
+     */
+    public static function canonicalizePermissionKeys(array $permissions): array
+    {
+        foreach (self::PERMISSION_ALIASES as $alias => $canonical) {
+            if (! array_key_exists($alias, $permissions)) {
+                continue;
+            }
+
+            if (! array_key_exists($canonical, $permissions)) {
+                $permissions[$canonical] = $permissions[$alias];
+                continue;
+            }
+
+            // Si el alias viene en true y la canónica en false, priorizar el alias.
+            if (self::toBool($permissions[$alias]) && ! self::toBool($permissions[$canonical])) {
+                $permissions[$canonical] = $permissions[$alias];
+            }
+        }
+
+        return $permissions;
     }
 
     /**

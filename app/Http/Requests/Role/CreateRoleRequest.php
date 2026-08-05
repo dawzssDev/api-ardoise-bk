@@ -49,8 +49,12 @@ class CreateRoleRequest extends FormRequest
             if (array_is_list($rawPermissions)) {
                 $map = Role::defaultPermissions();
                 foreach ($rawPermissions as $key) {
-                    if (is_string($key) && array_key_exists($key, $map)) {
-                        $map[$key] = true;
+                    if (! is_string($key)) {
+                        continue;
+                    }
+                    $canonical = Role::PERMISSION_ALIASES[$key] ?? $key;
+                    if (array_key_exists($canonical, $map)) {
+                        $map[$canonical] = true;
                     }
                 }
                 $merge['permissions'] = $map;
@@ -62,6 +66,30 @@ class CreateRoleRequest extends FormRequest
         if ($merge !== []) {
             $this->merge($merge);
         }
+    }
+
+    /**
+     * Asegura el mapa completo de permisos (validated() a veces omite claves nuevas).
+     *
+     * @param  string|null  $key
+     * @param  mixed  $default
+     * @return ($key is null ? array<string, mixed> : mixed)
+     */
+    public function validated($key = null, $default = null): mixed
+    {
+        $validated = parent::validated();
+
+        if (array_key_exists('permissions', $validated) || $this->exists('permissions')) {
+            $validated['permissions'] = Role::normalizePermissions(
+                is_array($this->input('permissions')) ? $this->input('permissions') : null
+            );
+        }
+
+        if ($key !== null) {
+            return data_get($validated, $key, $default);
+        }
+
+        return $validated;
     }
 
     /**
@@ -95,6 +123,9 @@ class CreateRoleRequest extends FormRequest
             'permissions.business' => ['required', 'boolean'],
             'permissions.users' => ['required', 'boolean'],
             'permissions.roles_permissions' => ['required', 'boolean'],
+            'permissions.nuevoPedido' => ['required', 'boolean'],
+            'permissions.enPreparacionPedido' => ['required', 'boolean'],
+            'permissions.pedidosListos' => ['required', 'boolean'],
             'status' => ['sometimes', 'boolean'],
         ];
     }

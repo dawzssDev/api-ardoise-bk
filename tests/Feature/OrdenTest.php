@@ -149,6 +149,15 @@ class OrdenTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.detalle.staff_finalizo.id', $staffCocina->id);
 
+        $ordenReady = $this->getJson("/api/ordenes/{$ordenId}")
+            ->assertOk()
+            ->assertJsonPath('data.orden.estatus', Orden::STATUS_LISTA);
+
+        $this->assertNotNull($ordenReady->json('data.orden.seconds_in_nuevo'));
+        $this->assertNotNull($ordenReady->json('data.orden.seconds_in_preparacion'));
+        $this->assertNotNull($ordenReady->json('data.orden.seconds_total_listo'));
+        $this->assertNotNull($ordenReady->json('data.orden.listo_at'));
+
         $this->putJson("/api/ordenes/{$ordenId}/status", [
             'estatus' => Orden::STATUS_ENTREGADA,
         ])
@@ -171,6 +180,117 @@ class OrdenTest extends TestCase
             'finished_by_staff_id' => $staffCocina->id,
             'status' => OrdenDetalle::STATUS_LISTO,
         ]);
+
+        $this->assertNotNull(
+            \App\Models\Orden::query()->whereKey($ordenId)->value('seconds_total_listo')
+        );
+    }
+
+    public function test_maestro_can_load_kitchen_board_by_selected_sucursal(): void
+    {
+        [$user, $negocio, $sucursal, $esquite] = $this->seedPosCatalog();
+
+        $otra = $negocio->sucursales()->create([
+            'type' => Sucursal::TYPE_SUCURSAL,
+            'name' => 'Norte',
+            'is_active' => true,
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Mesa A',
+            'sucursal_id' => $sucursal->id,
+            'tipo_pago' => 'efectivo',
+            'detalles' => [
+                ['producto_id' => $esquite->id, 'cantidad' => 1],
+            ],
+        ])->assertCreated();
+
+        $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Mesa B',
+            'sucursal_id' => $otra->id,
+            'tipo_pago' => 'efectivo',
+            'detalles' => [
+                ['producto_id' => $esquite->id, 'cantidad' => 1],
+            ],
+        ])->assertCreated();
+
+        $this->getJson('/api/ordenes/cocina')
+            ->assertStatus(422)
+            ->assertJsonPath('success', false);
+
+        $response = $this->getJson('/api/ordenes/cocina?sucursal_id='.$sucursal->id)
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.sucursal.id', $sucursal->id)
+            ->assertJsonPath('data.nuevo.0.nombre_cliente', 'Mesa A');
+
+        $this->assertCount(1, $response->json('data.nuevo'));
+        $this->assertCount(0, $response->json('data.en_preparacion'));
+        $this->assertSame($response->json('data.nuevo'), $response->json('data.activos'));
+    }
+
+    public function test_order_number_restarts_per_sucursal(): void
+    {
+        [$user, $negocio, $sucursal, $esquite] = $this->seedPosCatalog();
+
+        $otra = $negocio->sucursales()->create([
+            'type' => Sucursal::TYPE_SUCURSAL,
+            'name' => 'Norte',
+            'is_active' => true,
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Centro 1',
+            'sucursal_id' => $sucursal->id,
+            'tipo_pago' => 'efectivo',
+            'detalles' => [['producto_id' => $esquite->id, 'cantidad' => 1]],
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.orden.numero_orden', '000001');
+
+        $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Centro 2',
+            'sucursal_id' => $sucursal->id,
+            'tipo_pago' => 'efectivo',
+            'detalles' => [['producto_id' => $esquite->id, 'cantidad' => 1]],
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.orden.numero_orden', '000002');
+
+        $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Norte 1',
+            'sucursal_id' => $otra->id,
+            'tipo_pago' => 'efectivo',
+            'detalles' => [['producto_id' => $esquite->id, 'cantidad' => 1]],
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.orden.numero_orden', '000001')
+            ->assertJsonPath('data.orden.sucursal_id', $otra->id);
+    }
+
+    public function test_maestro_can_list_ordenes_filtered_by_selected_sucursal(): void
+    {
+        [$user, $negocio, $sucursal, $esquite] = $this->seedPosCatalog();
+
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Solo centro',
+            'sucursal_id' => $sucursal->id,
+            'tipo_pago' => 'efectivo',
+            'detalles' => [
+                ['producto_id' => $esquite->id, 'cantidad' => 1],
+            ],
+        ])->assertCreated();
+
+        $this->getJson('/api/ordenes?sucursal_id='.$sucursal->id)
+            ->assertOk()
+            ->assertJsonPath('data.ordenes.0.sucursal_id', $sucursal->id)
+            ->assertJsonPath('data.meta.total', 1);
     }
 
     /**
