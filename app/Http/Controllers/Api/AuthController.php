@@ -9,6 +9,7 @@ use App\Http\Requests\Auth\RegisterCompleteRequest;
 use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Resources\NegocioResource;
 use App\Http\Resources\StaffResource;
+use App\Http\Resources\TurnoCajaResource;
 use App\Http\Resources\UserResource;
 use App\Models\PendingRegistration;
 use App\Models\Staff;
@@ -16,6 +17,7 @@ use App\Models\User;
 use App\Services\AuthService;
 use App\Services\RegisterService;
 use App\Services\StripeService;
+use App\Services\TurnoCajaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Stripe\Exception\ApiErrorException;
@@ -27,6 +29,7 @@ class AuthController extends Controller
         private readonly RegisterService $registerService,
         private readonly AuthService $authService,
         private readonly StripeService $stripe,
+        private readonly TurnoCajaService $turnosCaja,
     ) {}
 
     /**
@@ -252,6 +255,8 @@ class AuthController extends Controller
                 'empleado:id,negocio_id,first_name,paternal_surname,maternal_surname,employee_number,status',
             ]);
 
+            $caja = $this->cajaPayload($actor);
+
             return response()->json([
                 'success' => true,
                 'message' => 'Inicio de sesión correcto.',
@@ -262,6 +267,7 @@ class AuthController extends Controller
                     'negocio' => $actor->negocio
                         ? (new NegocioResource($actor->negocio))->resolve()
                         : null,
+                    'caja' => $caja,
                     'token' => $token,
                     'token_type' => 'Bearer',
                 ],
@@ -279,6 +285,7 @@ class AuthController extends Controller
                 'type' => 'user',
                 'user' => (new UserResource($actor))->resolve(),
                 'staff' => null,
+                'caja' => $this->cajaPayload($actor),
                 'token' => $token,
                 'token_type' => 'Bearer',
             ],
@@ -326,6 +333,7 @@ class AuthController extends Controller
                     'negocio' => $actor->negocio
                         ? (new NegocioResource($actor->negocio))->resolve()
                         : null,
+                    'caja' => $this->cajaPayload($actor),
                 ],
                 'errors' => null,
             ]);
@@ -340,9 +348,34 @@ class AuthController extends Controller
                 'type' => 'user',
                 'user' => (new UserResource($actor))->resolve(),
                 'staff' => null,
+                'caja' => $this->cajaPayload($actor),
             ],
             'errors' => null,
         ]);
+    }
+
+    /**
+     * @return array{caja_abierta: bool, requiere_abrir_caja: bool, turno: array<string, mixed>|null}
+     */
+    private function cajaPayload(User|Staff $actor): array
+    {
+        $negocio = $actor->negocio;
+        if (! $negocio) {
+            return [
+                'caja_abierta' => false,
+                'requiere_abrir_caja' => true,
+                'turno' => null,
+            ];
+        }
+
+        $sucursalId = $actor instanceof Staff ? (int) $actor->sucursal_id : null;
+        $turno = $this->turnosCaja->openTurnoForActor($negocio, $actor, $sucursalId);
+
+        return [
+            'caja_abierta' => $turno !== null,
+            'requiere_abrir_caja' => $turno === null,
+            'turno' => $turno ? (new TurnoCajaResource($turno))->resolve() : null,
+        ];
     }
 
     private function completeAlreadyFinished(string $token): JsonResponse

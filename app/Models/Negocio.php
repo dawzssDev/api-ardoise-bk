@@ -83,4 +83,14 @@ class Negocio extends Model
     {
         return $this->hasMany(Orden::class);
     }
+
+    public function turnosCaja(): HasMany
+    {
+        return $this->hasMany(TurnoCaja::class);
+    }
+
+    public function ventas(): HasMany
+    {
+        return $this->hasMany(Venta::class);
+    }
 }

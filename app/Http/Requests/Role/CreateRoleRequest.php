@@ -126,6 +126,7 @@ class CreateRoleRequest extends FormRequest
             'permissions.nuevoPedido' => ['required', 'boolean'],
             'permissions.enPreparacionPedido' => ['required', 'boolean'],
             'permissions.pedidosListos' => ['required', 'boolean'],
+            'permissions.corteCaja' => ['required', 'boolean'],
             'status' => ['sometimes', 'boolean'],
         ];
     }

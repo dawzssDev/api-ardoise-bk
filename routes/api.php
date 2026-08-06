@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\StockInsumoController;
 use App\Http\Controllers\Api\StripeWebhookController;
 use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\SucursalController;
+use App\Http\Controllers\Api\TurnoCajaController;
 use App\Http\Controllers\Api\UserController;
 use Illuminate\Support\Facades\Route;
 
@@ -142,6 +143,15 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         Route::put('/staff/{id}/status', [StaffController::class, 'setStatus'])->whereNumber('id');
         Route::delete('/staff/{id}', [StaffController::class, 'destroy'])->whereNumber('id');
     });
+
+    // Turnos de caja / corte de caja
+    Route::get('/turnos-caja', [TurnoCajaController::class, 'index']);
+    Route::get('/turnos-caja/actual', [TurnoCajaController::class, 'actual']);
+    Route::post('/turnos-caja/abrir', [TurnoCajaController::class, 'store']);
+    Route::get('/turnos-caja/{id}', [TurnoCajaController::class, 'show'])->whereNumber('id');
+    Route::get('/turnos-caja/{id}/preview', [TurnoCajaController::class, 'preview'])->whereNumber('id');
+    Route::post('/turnos-caja/{id}/cerrar', [TurnoCajaController::class, 'cerrar'])->whereNumber('id');
+    Route::get('/turnos-caja/{id}/ventas', [TurnoCajaController::class, 'ventas'])->whereNumber('id');
 
     // Órdenes POS (header + detalle)
     Route::get('/ordenes', [OrdenController::class, 'index']);

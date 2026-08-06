@@ -20,6 +20,7 @@ class OrdenTest extends TestCase
         [$user, $negocio, $sucursal, $esquite, $ramen] = $this->seedPosCatalog();
 
         Sanctum::actingAs($user);
+        $this->abrirCaja($sucursal->id, 100);
 
         $response = $this->postJson('/api/ordenes', [
             'nombre_cliente' => 'Luis',
@@ -119,6 +120,7 @@ class OrdenTest extends TestCase
         ]);
 
         Sanctum::actingAs($staffPos);
+        $this->abrirCaja(null, 200);
 
         $create = $this->postJson('/api/ordenes', [
             'nombre_cliente' => 'Mesa 3',
@@ -197,6 +199,8 @@ class OrdenTest extends TestCase
         ]);
 
         Sanctum::actingAs($user);
+        $this->abrirCaja($sucursal->id, 50);
+        $this->abrirCaja($otra->id, 50);
 
         $this->postJson('/api/ordenes', [
             'nombre_cliente' => 'Mesa A',
@@ -242,6 +246,8 @@ class OrdenTest extends TestCase
         ]);
 
         Sanctum::actingAs($user);
+        $this->abrirCaja($sucursal->id, 50);
+        $this->abrirCaja($otra->id, 50);
 
         $this->postJson('/api/ordenes', [
             'nombre_cliente' => 'Centro 1',
@@ -277,6 +283,7 @@ class OrdenTest extends TestCase
         [$user, $negocio, $sucursal, $esquite] = $this->seedPosCatalog();
 
         Sanctum::actingAs($user);
+        $this->abrirCaja($sucursal->id, 50);
 
         $this->postJson('/api/ordenes', [
             'nombre_cliente' => 'Solo centro',
@@ -291,6 +298,16 @@ class OrdenTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.ordenes.0.sucursal_id', $sucursal->id)
             ->assertJsonPath('data.meta.total', 1);
+    }
+
+    private function abrirCaja(?int $sucursalId = null, float $fondo = 0): void
+    {
+        $payload = ['fondo_inicial' => $fondo];
+        if ($sucursalId !== null) {
+            $payload['sucursal_id'] = $sucursalId;
+        }
+
+        $this->postJson('/api/turnos-caja/abrir', $payload)->assertCreated();
     }
 
     /**

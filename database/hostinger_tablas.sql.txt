@@ -733,6 +733,88 @@ CREATE TABLE `orden_detalles` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
+--------------------------------------------------------------------------------
+1n) tb_turnos_cajas  (apertura / corte de caja)
+--------------------------------------------------------------------------------
+-- id_user = cajera (FK staff). user_id = maestro (si abre el turno).
+CREATE TABLE `tb_turnos_cajas` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `id_user` bigint UNSIGNED NULL DEFAULT NULL,
+  `user_id` bigint UNSIGNED NULL DEFAULT NULL,
+  `negocio_id` bigint UNSIGNED NOT NULL,
+  `sucursal_id` bigint UNSIGNED NOT NULL,
+  `fondo_inicial` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `total_ventas_efectivo` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `total_ventas_tarjeta` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `total_ventas_transferencia` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `total_ventas` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `total_pagos_proveedores` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `total_gastos_operativos` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `efectivo_esperado` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `efectivo_real` decimal(12,2) NULL DEFAULT NULL,
+  `diferencia` decimal(12,2) NULL DEFAULT NULL,
+  `status` varchar(20) NOT NULL DEFAULT 'abierto',
+  `fecha_apertura` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `fecha_cierre` timestamp NULL DEFAULT NULL,
+  `observaciones_cierre` text NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `tb_turnos_cajas_id_user_foreign` (`id_user`),
+  KEY `tb_turnos_cajas_user_id_foreign` (`user_id`),
+  KEY `tb_turnos_cajas_negocio_id_foreign` (`negocio_id`),
+  KEY `tb_turnos_cajas_sucursal_id_foreign` (`sucursal_id`),
+  KEY `tb_turnos_cajas_negocio_id_sucursal_id_status_index` (`negocio_id`, `sucursal_id`, `status`),
+  KEY `tb_turnos_cajas_id_user_status_index` (`id_user`, `status`),
+  KEY `tb_turnos_cajas_user_id_status_index` (`user_id`, `status`),
+  CONSTRAINT `tb_turnos_cajas_id_user_foreign`
+    FOREIGN KEY (`id_user`) REFERENCES `staff` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `tb_turnos_cajas_user_id_foreign`
+    FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `tb_turnos_cajas_negocio_id_foreign`
+    FOREIGN KEY (`negocio_id`) REFERENCES `negocios` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `tb_turnos_cajas_sucursal_id_foreign`
+    FOREIGN KEY (`sucursal_id`) REFERENCES `sucursales` (`id`) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+--------------------------------------------------------------------------------
+1o) tb_ventas  (ventas ligadas al turno de caja)
+--------------------------------------------------------------------------------
+CREATE TABLE `tb_ventas` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `turno_caja_id` bigint UNSIGNED NOT NULL,
+  `id_user` bigint UNSIGNED NULL DEFAULT NULL,
+  `orden_id` bigint UNSIGNED NULL DEFAULT NULL,
+  `order_number` int UNSIGNED NOT NULL,
+  `payment_type` varchar(30) NOT NULL,
+  `total` decimal(12,2) NOT NULL,
+  `sucursal_id` bigint UNSIGNED NOT NULL,
+  `negocio_id` bigint UNSIGNED NOT NULL,
+  `fecha_venta` timestamp NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `tb_ventas_turno_caja_id_foreign` (`turno_caja_id`),
+  KEY `tb_ventas_id_user_foreign` (`id_user`),
+  KEY `tb_ventas_orden_id_foreign` (`orden_id`),
+  KEY `tb_ventas_sucursal_id_foreign` (`sucursal_id`),
+  KEY `tb_ventas_negocio_id_foreign` (`negocio_id`),
+  KEY `tb_ventas_turno_caja_id_payment_type_index` (`turno_caja_id`, `payment_type`),
+  KEY `tb_ventas_negocio_id_sucursal_id_fecha_venta_index` (`negocio_id`, `sucursal_id`, `fecha_venta`),
+  CONSTRAINT `tb_ventas_turno_caja_id_foreign`
+    FOREIGN KEY (`turno_caja_id`) REFERENCES `tb_turnos_cajas` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `tb_ventas_id_user_foreign`
+    FOREIGN KEY (`id_user`) REFERENCES `staff` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `tb_ventas_orden_id_foreign`
+    FOREIGN KEY (`orden_id`) REFERENCES `ordenes` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `tb_ventas_sucursal_id_foreign`
+    FOREIGN KEY (`sucursal_id`) REFERENCES `sucursales` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `tb_ventas_negocio_id_foreign`
+    FOREIGN KEY (`negocio_id`) REFERENCES `negocios` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
 ================================================================================
 RESUMEN (orden de creación)
 ================================================================================
@@ -751,6 +833,8 @@ RESUMEN (orden de creación)
  1k. staff               ← FK a negocios + sucursales + roles + empleados + users
  1l. ordenes             ← FK a negocios + sucursales + users
  1m. orden_detalles      ← FK a ordenes + productos
+ 1n. tb_turnos_cajas     ← FK a staff + users + negocios + sucursales
+ 1o. tb_ventas           ← FK a tb_turnos_cajas + staff + ordenes
  2. password_reset_tokens
  3. sessions
  4. cache

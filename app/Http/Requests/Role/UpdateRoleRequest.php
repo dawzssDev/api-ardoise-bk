@@ -127,6 +127,7 @@ class UpdateRoleRequest extends FormRequest
             'permissions.nuevoPedido' => ['required_with:permissions', 'boolean'],
             'permissions.enPreparacionPedido' => ['required_with:permissions', 'boolean'],
             'permissions.pedidosListos' => ['required_with:permissions', 'boolean'],
+            'permissions.corteCaja' => ['required_with:permissions', 'boolean'],
             'status' => ['sometimes', 'boolean'],
         ];
     }

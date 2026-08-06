@@ -19,8 +19,13 @@ class OrdenService
 
     private const STAFF_WITH = 'id,negocio_id,username,sucursal_id,empleado_id,status';
 
+    public function __construct(
+        private readonly TurnoCajaService $turnosCaja,
+    ) {}
+
     /**
      * Crea orden + detalles (flujo POS "Cobrar").
+     * Requiere turno de caja abierto; registra la venta en tb_ventas.
      *
      * @param  array{
      *     customer_name: string,
@@ -54,6 +59,8 @@ class OrdenService
         }
 
         return DB::transaction(function () use ($negocio, $actor, $data, $sucursalId, $paymentType, $status) {
+            $turno = $this->turnosCaja->requireOpenTurnoForSale($negocio, $actor, $sucursalId);
+
             $auditId = $this->auditUserId($actor, $negocio);
             $orderNumber = $this->nextOrderNumber($negocio, $sucursalId);
             $lineRows = $this->buildDetalleRows($negocio, $data['detalles']);
@@ -75,6 +82,16 @@ class OrdenService
 
             foreach ($lineRows as $row) {
                 $orden->detalles()->create($row);
+            }
+
+            // Solo cobros (pagada o posteriores) generan venta de caja
+            if (in_array($status, [
+                Orden::STATUS_PAGADA,
+                Orden::STATUS_EN_COCINA,
+                Orden::STATUS_LISTA,
+                Orden::STATUS_ENTREGADA,
+            ], true)) {
+                $this->turnosCaja->registerVentaFromOrden($turno, $orden, $actor);
             }
 
             return $orden->load($this->ordenRelations());
@@ -537,8 +554,12 @@ class OrdenService
             $normalized = 'transferencia';
         }
 
+        if ($normalized === 'card' || $normalized === 'credit') {
+            $normalized = 'tarjeta';
+        }
+
         if (! in_array($normalized, Orden::PAYMENT_TYPES, true)) {
-            throw new HttpException(422, 'Tipo de pago inválido. Usa: credito, transferencia o efectivo.');
+            throw new HttpException(422, 'Tipo de pago inválido. Usa: efectivo, tarjeta, transferencia o credito.');
         }
 
         return $normalized;

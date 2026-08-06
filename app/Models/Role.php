@@ -28,6 +28,7 @@ class Role extends Model
         'nuevoPedido',
         'enPreparacionPedido',
         'pedidosListos',
+        'corteCaja',
     ];
 
     /**
@@ -81,6 +82,15 @@ class Role extends Model
         }
 
         return $normalized;
+    }
+
+    public function allows(string $permission): bool
+    {
+        $normalized = self::normalizePermissions(
+            is_array($this->permissions) ? $this->permissions : null
+        );
+
+        return $normalized[$permission] ?? false;
     }
 
     /**

@@ -10,7 +10,7 @@ class Orden extends Model
 {
     protected $table = 'ordenes';
 
-    public const PAYMENT_TYPES = ['credito', 'transferencia', 'efectivo'];
+    public const PAYMENT_TYPES = ['credito', 'tarjeta', 'transferencia', 'efectivo'];
 
     /** Pendiente de cobro */
     public const STATUS_PENDIENTE = 1;
