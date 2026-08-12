@@ -6,6 +6,7 @@ use App\Models\Orden;
 use App\Models\OrdenDetalle;
 use App\Models\Role;
 use App\Models\Sucursal;
+use App\Models\TipoVenta;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -276,6 +277,64 @@ class OrdenTest extends TestCase
             ->assertCreated()
             ->assertJsonPath('data.orden.numero_orden', '000001')
             ->assertJsonPath('data.orden.sucursal_id', $otra->id);
+    }
+
+    public function test_orden_detalle_applies_tipo_venta_discount_from_backend(): void
+    {
+        [$user, $negocio, $sucursal, $esquite, $ramen] = $this->seedPosCatalog();
+
+        $policia = $negocio->tiposVenta()->create([
+            'name' => 'Policía',
+            'tipo_descuento' => TipoVenta::TIPO_PORCENTAJE,
+            'valor_descuento' => 20,
+            'status' => true,
+        ]);
+
+        $cortesia = $negocio->tiposVenta()->create([
+            'name' => 'Cortesía',
+            'tipo_descuento' => TipoVenta::TIPO_GRATIS,
+            'valor_descuento' => null,
+            'status' => true,
+        ]);
+
+        Sanctum::actingAs($user);
+        $this->abrirCaja($sucursal->id, 100);
+
+        $response = $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Cliente descuento',
+            'sucursal_id' => $sucursal->id,
+            'tipo_pago' => 'efectivo',
+            'detalles' => [
+                [
+                    'producto_id' => $ramen->id,
+                    'cantidad' => 1,
+                    // Front manda precio "mentiroso"; el backend debe ignorarlo.
+                    'precio' => 1,
+                    'tipo_venta_id' => $policia->id,
+                ],
+                [
+                    'producto_id' => $esquite->id,
+                    'cantidad' => 1,
+                    'tipo_venta_id' => $cortesia->id,
+                ],
+            ],
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('data.orden.total', '56.00')
+            ->assertJsonPath('data.orden.detalles.0.precio_lista', '70.00')
+            ->assertJsonPath('data.orden.detalles.0.price', '56.00')
+            ->assertJsonPath('data.orden.detalles.0.tipo_venta.name', 'Policía')
+            ->assertJsonPath('data.orden.detalles.1.precio_lista', '50.00')
+            ->assertJsonPath('data.orden.detalles.1.price', '0.00')
+            ->assertJsonPath('data.orden.detalles.1.tipo_venta.name', 'Cortesía');
+
+        $this->assertDatabaseHas('orden_detalles', [
+            'producto_id' => $ramen->id,
+            'tipo_venta_id' => $policia->id,
+            'precio_lista' => 70.00,
+            'price' => 56.00,
+        ]);
     }
 
     public function test_maestro_can_list_ordenes_filtered_by_selected_sucursal(): void

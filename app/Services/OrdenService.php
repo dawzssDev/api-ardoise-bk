@@ -2,11 +2,13 @@
 
 namespace App\Services;
 
+use App\Models\CuentaPorCobrar;
 use App\Models\Negocio;
 use App\Models\Orden;
 use App\Models\OrdenDetalle;
 use App\Models\Producto;
 use App\Models\Staff;
+use App\Models\TipoVenta;
 use App\Models\User;
 use App\Services\Concerns\ResolvesNegocioFromActor;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -34,6 +36,8 @@ class OrdenService
      *     status?: int,
      *     detalles: list<array{
      *         producto_id: int,
+     *         tipo_venta_id?: int|null,
+     *         empleado_id?: int|null,
      *         product_name?: string|null,
      *         quantity: float|int|string,
      *         price?: float|int|string|null,
@@ -64,9 +68,11 @@ class OrdenService
             $auditId = $this->auditUserId($actor, $negocio);
             $orderNumber = $this->nextOrderNumber($negocio, $sucursalId);
             $lineRows = $this->buildDetalleRows($negocio, $data['detalles']);
-            $total = collect($lineRows)->sum(
-                fn (array $row) => (float) $row['quantity'] * (float) $row['price']
-            );
+
+            // Solo líneas NO diferidas suman al total cobrado hoy (caja).
+            $total = collect($lineRows)
+                ->reject(fn (array $row) => (bool) ($row['diferido'] ?? false))
+                ->sum(fn (array $row) => (float) $row['quantity'] * (float) $row['price']);
 
             $orden = $negocio->ordenes()->create([
                 'order_number' => $orderNumber,
@@ -80,12 +86,29 @@ class OrdenService
                 'updated_by' => $auditId,
             ]);
 
+            $now = now();
             foreach ($lineRows as $row) {
-                $orden->detalles()->create($row);
+                $detalle = $orden->detalles()->create($row);
+
+                if ((bool) ($row['diferido'] ?? false)) {
+                    $lineMonto = round((float) $row['quantity'] * (float) $row['price'], 2);
+
+                    $negocio->cuentasPorCobrar()->create([
+                        'sucursal_id' => $sucursalId,
+                        'empleado_id' => $row['empleado_id'],
+                        'orden_id' => $orden->id,
+                        'orden_detalle_id' => $detalle->id,
+                        'turno_caja_id' => $turno->id,
+                        'concepto' => $detalle->product_name,
+                        'monto' => $lineMonto,
+                        'status' => CuentaPorCobrar::STATUS_PENDIENTE,
+                        'fecha_generado' => $now,
+                    ]);
+                }
             }
 
-            // Solo cobros (pagada o posteriores) generan venta de caja
-            if (in_array($status, [
+            // Solo cobros con monto real de caja generan venta (excluye diferidos del total).
+            if ($total > 0 && in_array($status, [
                 Orden::STATUS_PAGADA,
                 Orden::STATUS_EN_COCINA,
                 Orden::STATUS_LISTA,
@@ -337,6 +360,8 @@ class OrdenService
         return [
             'sucursal:id,negocio_id,type,name',
             'detalles.producto:id,negocio_id,name,price',
+            'detalles.tipoVenta:id,negocio_id,name,tipo_descuento,valor_descuento,diferir_cobro,requiere_empleado,status',
+            'detalles.empleado:id,negocio_id,first_name,paternal_surname,maternal_surname',
             'detalles.advancedByStaff:'.self::STAFF_WITH,
             'detalles.finishedByStaff:'.self::STAFF_WITH,
             'createdByStaff:'.self::STAFF_WITH,
@@ -591,9 +616,53 @@ class OrdenService
                 throw new HttpException(422, 'La cantidad debe ser mayor a cero.');
             }
 
-            $price = array_key_exists('price', $item) && $item['price'] !== null
-                ? (float) $item['price']
-                : (float) $producto->price;
+            $precioLista = round((float) $producto->price, 2);
+            $tipoVentaId = isset($item['tipo_venta_id']) && $item['tipo_venta_id'] !== null
+                ? (int) $item['tipo_venta_id']
+                : null;
+
+            $tipoVenta = null;
+            $diferido = false;
+
+            if ($tipoVentaId !== null) {
+                /** @var TipoVenta|null $tipoVenta */
+                $tipoVenta = $negocio->tiposVenta()
+                    ->whereKey($tipoVentaId)
+                    ->where('status', true)
+                    ->first();
+
+                if (! $tipoVenta) {
+                    throw new HttpException(
+                        422,
+                        "El tipo de venta {$tipoVentaId} no pertenece a tu negocio o está inactivo.",
+                    );
+                }
+
+                // Fuente de verdad: descuento calculado en backend (ignora price del front).
+                $price = round($tipoVenta->applyDiscount($precioLista), 2);
+                $diferido = (bool) $tipoVenta->diferir_cobro;
+            } else {
+                $price = array_key_exists('price', $item) && $item['price'] !== null
+                    ? round((float) $item['price'], 2)
+                    : $precioLista;
+            }
+
+            $empleadoId = isset($item['empleado_id']) && $item['empleado_id'] !== null
+                ? (int) $item['empleado_id']
+                : null;
+
+            $requiresEmpleado = $diferido || (bool) ($tipoVenta?->requiere_empleado);
+            if ($requiresEmpleado && $empleadoId === null) {
+                throw new HttpException(
+                    422,
+                    'Debes seleccionar un empleado para este tipo de venta.',
+                );
+            }
+
+            // Si el front manda empleado_id (aunque el tipo no lo exija), se guarda y se expone.
+            if ($empleadoId !== null && ! $negocio->empleados()->whereKey($empleadoId)->exists()) {
+                throw new HttpException(422, "El empleado {$empleadoId} no pertenece a tu negocio.");
+            }
 
             $detailStatus = (int) ($item['status'] ?? OrdenDetalle::STATUS_PENDIENTE);
             if (! in_array($detailStatus, OrdenDetalle::STATUSES, true)) {
@@ -602,9 +671,13 @@ class OrdenService
 
             $rows[] = [
                 'producto_id' => $producto->id,
+                'tipo_venta_id' => $tipoVentaId,
                 'product_name' => $item['product_name'] ?? $producto->name,
                 'quantity' => $quantity,
-                'price' => round($price, 2),
+                'precio_lista' => $precioLista,
+                'diferido' => $diferido,
+                'empleado_id' => $empleadoId,
+                'price' => $price,
                 'extras' => $item['extras'] ?? null,
                 'notes' => $item['notes'] ?? null,
                 'status' => $detailStatus,

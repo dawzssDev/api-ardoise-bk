@@ -832,9 +832,11 @@ RESUMEN (orden de creación)
  1j. empleados           ← FK a negocios + sucursales + roles + users
  1k. staff               ← FK a negocios + sucursales + roles + empleados + users
  1l. ordenes             ← FK a negocios + sucursales + users
- 1m. orden_detalles      ← FK a ordenes + productos
+ 1m. orden_detalles      ← FK a ordenes + productos (+ tipo_venta vía ALTER)
  1n. tb_turnos_cajas     ← FK a staff + users + negocios + sucursales
  1o. tb_ventas           ← FK a tb_turnos_cajas + staff + ordenes
+ 1p. tb_tipos_venta      ← FK a negocios (ver sección al final)
+ 1q. tb_cuentas_por_cobrar ← FK a negocios + sucursales + empleados + ordenes (ver sección al final)
  2. password_reset_tokens
  3. sessions
  4. cache
@@ -869,6 +871,126 @@ ALTER TABLE `ordenes`
   ADD UNIQUE KEY `ordenes_sucursal_id_order_number_unique` (`sucursal_id`, `order_number`);
 
 ================================================================================
+TIPOS DE VENTA (catálogo + descuento por línea de orden)
+================================================================================
+-- Ejecutar en este orden: primero CREATE tb_tipos_venta, luego ALTER orden_detalles.
+
+--------------------------------------------------------------------------------
+1p) tb_tipos_venta  (público general, policía, cortesía, consumo colaborador, etc.)
+--------------------------------------------------------------------------------
+-- tipo_descuento: ninguno | porcentaje | monto_fijo | gratis
+-- valor_descuento: requerido solo si porcentaje o monto_fijo; NULL si ninguno/gratis
+-- diferir_cobro: si 1, la línea NO se cobra hoy → cuenta por cobrar
+-- requiere_empleado: si 1, el front debe exigir seleccionar empleado
+CREATE TABLE `tb_tipos_venta` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `negocio_id` bigint UNSIGNED NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `tipo_descuento` enum('ninguno','porcentaje','monto_fijo','gratis') NOT NULL,
+  `valor_descuento` decimal(10,2) NULL DEFAULT NULL,
+  `diferir_cobro` tinyint(1) NOT NULL DEFAULT 0,
+  `requiere_empleado` tinyint(1) NOT NULL DEFAULT 0,
+  `status` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `tb_tipos_venta_negocio_id_name_unique` (`negocio_id`, `name`),
+  KEY `tb_tipos_venta_negocio_id_foreign` (`negocio_id`),
+  KEY `tb_tipos_venta_negocio_id_status_index` (`negocio_id`, `status`),
+  CONSTRAINT `tb_tipos_venta_negocio_id_foreign`
+    FOREIGN KEY (`negocio_id`) REFERENCES `negocios` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--------------------------------------------------------------------------------
+ALTER orden_detalles — tipo_venta_id + precio_lista
+--------------------------------------------------------------------------------
+-- Si `orden_detalles` ya existe sin estos campos, ejecuta:
+--   tipo_venta_id → FK nullable a tb_tipos_venta (null = sin descuento)
+--   precio_lista  → precio de catálogo ANTES del descuento
+--   price         → precio FINAL (ya con descuento aplicado)
+ALTER TABLE `orden_detalles`
+  ADD COLUMN `tipo_venta_id` bigint UNSIGNED NULL DEFAULT NULL AFTER `producto_id`,
+  ADD COLUMN `precio_lista` decimal(10,2) NULL DEFAULT NULL AFTER `quantity`,
+  ADD KEY `orden_detalles_tipo_venta_id_foreign` (`tipo_venta_id`),
+  ADD CONSTRAINT `orden_detalles_tipo_venta_id_foreign`
+    FOREIGN KEY (`tipo_venta_id`) REFERENCES `tb_tipos_venta` (`id`) ON DELETE SET NULL;
+
+================================================================================
+CUENTAS POR COBRAR (consumo colaborador / descuento nómina)
+================================================================================
+-- Orden: ALTER tb_tipos_venta (si ya existía) → ALTER orden_detalles → CREATE tb_cuentas_por_cobrar
+
+--------------------------------------------------------------------------------
+ALTER tb_tipos_venta — diferir_cobro + requiere_empleado
+--------------------------------------------------------------------------------
+-- Solo si ya creaste `tb_tipos_venta` SIN estas columnas:
+ALTER TABLE `tb_tipos_venta`
+  ADD COLUMN `diferir_cobro` tinyint(1) NOT NULL DEFAULT 0 AFTER `valor_descuento`,
+  ADD COLUMN `requiere_empleado` tinyint(1) NOT NULL DEFAULT 0 AFTER `diferir_cobro`;
+
+--------------------------------------------------------------------------------
+ALTER orden_detalles — diferido + empleado_id
+--------------------------------------------------------------------------------
+-- diferido = 1 → línea registrada en orden pero NO suma a orden.total / caja
+-- empleado_id → colaborador que consumió (requerido si diferido = 1)
+ALTER TABLE `orden_detalles`
+  ADD COLUMN `diferido` tinyint(1) NOT NULL DEFAULT 0 AFTER `precio_lista`,
+  ADD COLUMN `empleado_id` bigint UNSIGNED NULL DEFAULT NULL AFTER `diferido`,
+  ADD KEY `orden_detalles_empleado_id_foreign` (`empleado_id`),
+  ADD CONSTRAINT `orden_detalles_empleado_id_foreign`
+    FOREIGN KEY (`empleado_id`) REFERENCES `empleados` (`id`) ON DELETE SET NULL;
+
+--------------------------------------------------------------------------------
+1q) tb_cuentas_por_cobrar
+--------------------------------------------------------------------------------
+-- status: pendiente | pagado
+-- empleado_id = quién consumió (NO el staff que cobró)
+-- pagado_por = dueño/admin (users) que liquidó en nómina
+CREATE TABLE `tb_cuentas_por_cobrar` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `negocio_id` bigint UNSIGNED NOT NULL,
+  `sucursal_id` bigint UNSIGNED NOT NULL,
+  `empleado_id` bigint UNSIGNED NOT NULL,
+  `orden_id` bigint UNSIGNED NOT NULL,
+  `orden_detalle_id` bigint UNSIGNED NOT NULL,
+  `turno_caja_id` bigint UNSIGNED NULL DEFAULT NULL,
+  `concepto` varchar(255) NOT NULL,
+  `monto` decimal(10,2) NOT NULL,
+  `status` enum('pendiente','pagado') NOT NULL DEFAULT 'pendiente',
+  `fecha_generado` datetime NOT NULL,
+  `fecha_pagado` datetime NULL DEFAULT NULL,
+  `pagado_por` bigint UNSIGNED NULL DEFAULT NULL,
+  `nota` varchar(255) NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `tb_cuentas_por_cobrar_negocio_id_foreign` (`negocio_id`),
+  KEY `tb_cuentas_por_cobrar_sucursal_id_foreign` (`sucursal_id`),
+  KEY `tb_cuentas_por_cobrar_empleado_id_foreign` (`empleado_id`),
+  KEY `tb_cuentas_por_cobrar_orden_id_foreign` (`orden_id`),
+  KEY `tb_cuentas_por_cobrar_orden_detalle_id_foreign` (`orden_detalle_id`),
+  KEY `tb_cuentas_por_cobrar_turno_caja_id_foreign` (`turno_caja_id`),
+  KEY `tb_cuentas_por_cobrar_pagado_por_foreign` (`pagado_por`),
+  KEY `tb_cuentas_por_cobrar_negocio_id_status_index` (`negocio_id`, `status`),
+  KEY `tb_cuentas_por_cobrar_negocio_id_empleado_id_status_index` (`negocio_id`, `empleado_id`, `status`),
+  KEY `tb_cuentas_por_cobrar_sucursal_id_status_index` (`sucursal_id`, `status`),
+  CONSTRAINT `tb_cuentas_por_cobrar_negocio_id_foreign`
+    FOREIGN KEY (`negocio_id`) REFERENCES `negocios` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `tb_cuentas_por_cobrar_sucursal_id_foreign`
+    FOREIGN KEY (`sucursal_id`) REFERENCES `sucursales` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `tb_cuentas_por_cobrar_empleado_id_foreign`
+    FOREIGN KEY (`empleado_id`) REFERENCES `empleados` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `tb_cuentas_por_cobrar_orden_id_foreign`
+    FOREIGN KEY (`orden_id`) REFERENCES `ordenes` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `tb_cuentas_por_cobrar_orden_detalle_id_foreign`
+    FOREIGN KEY (`orden_detalle_id`) REFERENCES `orden_detalles` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `tb_cuentas_por_cobrar_turno_caja_id_foreign`
+    FOREIGN KEY (`turno_caja_id`) REFERENCES `tb_turnos_cajas` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `tb_cuentas_por_cobrar_pagado_por_foreign`
+    FOREIGN KEY (`pagado_por`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+================================================================================
 NOTA SI USAS php artisan migrate
 ================================================================================
 Si creas las tablas a mano, Laravel no sabrá que las migraciones ya corrieron.
@@ -882,6 +1004,17 @@ En ese caso, o bien:
 
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_08_01_175500_add_trial_ends_at_to_subscriptions_table', 1);
+
+-- Tipos de venta (si creaste la tabla / alter a mano):
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_08_10_010000_create_tb_tipos_venta_table', 1),
+('2026_08_10_011000_add_tipo_venta_to_orden_detalles_table', 1);
+
+-- Cuentas por cobrar (si creaste tabla / alters a mano):
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_08_10_020000_add_diferir_cobro_to_tb_tipos_venta_table', 1),
+('2026_08_10_021000_create_tb_cuentas_por_cobrar_table', 1),
+('2026_08_10_022000_add_diferido_to_orden_detalles_table', 1);
 
 ================================================================================
 FIN

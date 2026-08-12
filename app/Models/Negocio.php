@@ -49,6 +49,11 @@ class Negocio extends Model
         return $this->hasMany(CategoriaProducto::class);
     }
 
+    public function tiposVenta(): HasMany
+    {
+        return $this->hasMany(TipoVenta::class);
+    }
+
     public function productos(): HasMany
     {
         return $this->hasMany(Producto::class);
@@ -92,5 +97,10 @@ class Negocio extends Model
     public function ventas(): HasMany
     {
         return $this->hasMany(Venta::class);
+    }
+
+    public function cuentasPorCobrar(): HasMany
+    {
+        return $this->hasMany(CuentaPorCobrar::class);
     }
 }

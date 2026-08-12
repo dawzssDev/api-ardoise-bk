@@ -39,8 +39,12 @@ class OrdenDetalle extends Model
     protected $fillable = [
         'orden_id',
         'producto_id',
+        'tipo_venta_id',
         'product_name',
         'quantity',
+        'precio_lista',
+        'diferido',
+        'empleado_id',
         'price',
         'extras',
         'notes',
@@ -55,6 +59,8 @@ class OrdenDetalle extends Model
     {
         return [
             'quantity' => 'decimal:3',
+            'precio_lista' => 'decimal:2',
+            'diferido' => 'boolean',
             'price' => 'decimal:2',
             'extras' => 'array',
             'status' => 'integer',
@@ -71,6 +77,16 @@ class OrdenDetalle extends Model
     public function producto(): BelongsTo
     {
         return $this->belongsTo(Producto::class);
+    }
+
+    public function tipoVenta(): BelongsTo
+    {
+        return $this->belongsTo(TipoVenta::class, 'tipo_venta_id');
+    }
+
+    public function empleado(): BelongsTo
+    {
+        return $this->belongsTo(Empleado::class);
     }
 
     public function advancedByStaff(): BelongsTo

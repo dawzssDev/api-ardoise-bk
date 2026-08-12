@@ -78,6 +78,12 @@ class CreateOrdenRequest extends FormRequest
                 if (! array_key_exists('price', $row)) {
                     $row['price'] = $row['precio'] ?? $row['Precio'] ?? null;
                 }
+                if (! array_key_exists('tipo_venta_id', $row)) {
+                    $row['tipo_venta_id'] = $row['tipoVentaId'] ?? $row['TipoVentaID'] ?? $row['id_tipo_venta'] ?? null;
+                }
+                if (! array_key_exists('empleado_id', $row)) {
+                    $row['empleado_id'] = $row['empleadoId'] ?? $row['EmpleadoID'] ?? $row['id_empleado'] ?? null;
+                }
                 if (! array_key_exists('notes', $row)) {
                     $row['notes'] = $row['observaciones'] ?? $row['Observaciones'] ?? null;
                 }
@@ -126,6 +132,22 @@ class CreateOrdenRequest extends FormRequest
             'detalles.*.product_name' => ['sometimes', 'nullable', 'string', 'max:255'],
             'detalles.*.quantity' => ['required', 'numeric', 'gt:0'],
             'detalles.*.price' => ['sometimes', 'nullable', 'numeric', 'min:0'],
+            'detalles.*.tipo_venta_id' => [
+                'sometimes',
+                'nullable',
+                'integer',
+                Rule::exists('tb_tipos_venta', 'id')->where(
+                    fn ($q) => $q->where('negocio_id', $negocioId)->where('status', true)
+                ),
+            ],
+            'detalles.*.empleado_id' => [
+                'sometimes',
+                'nullable',
+                'integer',
+                Rule::exists('empleados', 'id')->where(
+                    fn ($q) => $q->where('negocio_id', $negocioId)
+                ),
+            ],
             'detalles.*.extras' => ['sometimes', 'nullable', 'array'],
             'detalles.*.notes' => ['sometimes', 'nullable', 'string', 'max:500'],
             'detalles.*.status' => ['sometimes', 'integer', Rule::in(OrdenDetalle::STATUSES)],
@@ -144,6 +166,8 @@ class CreateOrdenRequest extends FormRequest
             'detalles.min' => 'Debes enviar al menos un producto en la orden.',
             'detalles.*.producto_id.required' => 'El producto es obligatorio.',
             'detalles.*.producto_id.exists' => 'El producto no existe en tu negocio.',
+            'detalles.*.tipo_venta_id.exists' => 'El tipo de venta no existe en tu negocio o está inactivo.',
+            'detalles.*.empleado_id.exists' => 'El empleado no existe en tu negocio.',
             'detalles.*.quantity.required' => 'La cantidad es obligatoria.',
             'detalles.*.quantity.gt' => 'La cantidad debe ser mayor a cero.',
         ];

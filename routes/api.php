@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CategoriaInsumoController;
 use App\Http\Controllers\Api\CategoriaProductoController;
+use App\Http\Controllers\Api\CuentaPorCobrarController;
 use App\Http\Controllers\Api\EmpleadoController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\InsumoController;
@@ -17,6 +18,7 @@ use App\Http\Controllers\Api\StockInsumoController;
 use App\Http\Controllers\Api\StripeWebhookController;
 use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\SucursalController;
+use App\Http\Controllers\Api\TipoVentaController;
 use App\Http\Controllers\Api\TurnoCajaController;
 use App\Http\Controllers\Api\UserController;
 use Illuminate\Support\Facades\Route;
@@ -92,6 +94,21 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::get('/categoria-productos/{id}', [CategoriaProductoController::class, 'show'])->whereNumber('id');
     Route::put('/categoria-productos/{id}', [CategoriaProductoController::class, 'update'])->whereNumber('id');
     Route::delete('/categoria-productos/{id}', [CategoriaProductoController::class, 'destroy'])->whereNumber('id');
+
+    // Tipos de venta / reglas de descuento por línea (throttle:api = máx. 60 req/min)
+    Route::get('/tipos-venta', [TipoVentaController::class, 'index']);
+    Route::post('/tipos-venta', [TipoVentaController::class, 'store']);
+    Route::get('/tipos-venta/{id}', [TipoVentaController::class, 'show'])->whereNumber('id');
+    Route::put('/tipos-venta/{id}', [TipoVentaController::class, 'update'])->whereNumber('id');
+    Route::delete('/tipos-venta/{id}', [TipoVentaController::class, 'destroy'])->whereNumber('id');
+
+    // Cuentas por cobrar (consumo colaborador / descuento nómina)
+    Route::get('/cuentas-por-cobrar', [CuentaPorCobrarController::class, 'index']);
+    Route::get('/cuentas-por-cobrar/resumen', [CuentaPorCobrarController::class, 'resumen']);
+    Route::middleware('master')->group(function () {
+        Route::post('/cuentas-por-cobrar/pagar-lote', [CuentaPorCobrarController::class, 'pagarLote']);
+        Route::post('/cuentas-por-cobrar/{id}/pagar', [CuentaPorCobrarController::class, 'pagar'])->whereNumber('id');
+    });
 
     // Insumos del negocio (throttle:api = máx. 60 req/min)
     Route::get('/insumos', [InsumoController::class, 'index']);
