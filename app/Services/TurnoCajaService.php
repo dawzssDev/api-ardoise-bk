@@ -29,6 +29,8 @@ class TurnoCajaService
             throw new HttpException(422, 'Ya tienes un turno de caja abierto en esta sucursal. Ciérralo antes de abrir otro.');
         }
 
+        $this->assertNoPendingAdminClose($negocio, $sucursalId);
+
         $fondo = round((float) ($data['fondo_inicial'] ?? 0), 2);
         if ($fondo < 0) {
             throw new HttpException(422, 'El fondo inicial no puede ser negativo.');
@@ -43,6 +45,7 @@ class TurnoCajaService
             'total_pagos_proveedores' => 0,
             'total_gastos_operativos' => 0,
             'status' => TurnoCaja::STATUS_ABIERTO,
+            'status_administrador' => TurnoCaja::STATUS_ABIERTO,
             'fecha_apertura' => now(),
         ])->load($this->turnoRelations());
     }
@@ -52,47 +55,24 @@ class TurnoCajaService
         User|Staff $actor,
         float $efectivoReal,
         ?string $observaciones = null,
+        ?float $efectivoRealCajera = null,
     ): TurnoCaja {
         $this->assertCanCorteCaja($actor);
         $this->assertCanManageTurno($turno, $actor);
-
-        if (! $turno->isOpen()) {
-            throw new HttpException(422, 'Este turno de caja ya está cerrado.');
-        }
 
         if ($efectivoReal < 0) {
             throw new HttpException(422, 'El efectivo real no puede ser negativo.');
         }
 
-        return DB::transaction(function () use ($turno, $efectivoReal, $observaciones) {
-            $totales = $this->sumVentasByPayment($turno);
+        if ($efectivoRealCajera !== null && $efectivoRealCajera < 0) {
+            throw new HttpException(422, 'El efectivo real de la cajera no puede ser negativo.');
+        }
 
-            $efectivoEsperado = $totales['efectivo'];
-            $pagosProveedores = (float) $turno->total_pagos_proveedores;
-            $gastosOperativos = (float) $turno->total_gastos_operativos;
+        if ($this->isCajeraClose($actor)) {
+            return $this->cerrarPorCajera($turno, $efectivoReal, $observaciones, $efectivoRealCajera);
+        }
 
-            // diferencia = esperado - real - pagos - gastos (sin fondo_inicial)
-            $diferencia = round(
-                $efectivoEsperado - $efectivoReal - $pagosProveedores - $gastosOperativos,
-                2
-            );
-
-            $turno->fill([
-                'total_ventas_efectivo' => $totales['efectivo'],
-                'total_ventas_tarjeta' => $totales['tarjeta'],
-                'total_ventas_transferencia' => $totales['transferencia'],
-                'total_ventas' => $totales['total'],
-                'efectivo_esperado' => $efectivoEsperado,
-                'efectivo_real' => round($efectivoReal, 2),
-                'diferencia' => $diferencia,
-                'status' => TurnoCaja::STATUS_CERRADO,
-                'fecha_cierre' => now(),
-                'observaciones_cierre' => $observaciones,
-            ]);
-            $turno->save();
-
-            return $turno->refresh()->load($this->turnoRelations());
-        });
+        return $this->cerrarPorAdministrador($turno, $efectivoReal, $observaciones, $efectivoRealCajera);
     }
 
     public function listForNegocio(
@@ -107,7 +87,7 @@ class TurnoCajaService
             ->with($this->turnoRelations())
             ->latest('id');
 
-        if ($actor instanceof Staff) {
+        if ($actor instanceof Staff && ! $this->staffHasCorteAdmin($actor)) {
             $query->where('id_user', $actor->id);
         }
 
@@ -121,6 +101,35 @@ class TurnoCajaService
         }
 
         return $query->paginate($perPage);
+    }
+
+    /**
+     * Turnos con status_administrador = abierto (pendientes de cierre admin).
+     *
+     * @return list<TurnoCaja>
+     */
+    public function listPendientesAdministrador(
+        Negocio $negocio,
+        User|Staff $actor,
+        ?int $sucursalId = null,
+    ): array {
+        $query = TurnoCaja::query()
+            ->where('negocio_id', $negocio->id)
+            ->where('status_administrador', TurnoCaja::STATUS_ABIERTO)
+            ->with($this->turnoRelations())
+            ->latest('id');
+
+        if ($sucursalId) {
+            $this->assertSucursalBelongs($negocio, $sucursalId);
+            $query->where('sucursal_id', $sucursalId);
+        }
+
+        // Cajera solo ve los suyos; admin/dueño ve todos los pendientes de la sucursal.
+        if ($actor instanceof Staff && ! $this->staffHasCorteAdmin($actor)) {
+            $query->where('id_user', $actor->id);
+        }
+
+        return $query->get()->all();
     }
 
     public function findForNegocio(Negocio $negocio, int $turnoId): TurnoCaja
@@ -235,11 +244,145 @@ class TurnoCajaService
             'total_gastos_operativos' => (float) $turno->total_gastos_operativos,
             'efectivo_esperado' => $totales['efectivo'],
             'fondo_inicial' => (float) $turno->fondo_inicial,
+            'status' => $turno->status,
+            'status_administrador' => $turno->status_administrador,
         ];
     }
 
     /**
-     * Dueño del negocio siempre puede. Staff requiere permiso corteCaja.
+     * Cierre de cajera: status → cerrado; status_administrador sigue abierto.
+     */
+    private function cerrarPorCajera(
+        TurnoCaja $turno,
+        float $efectivoReal,
+        ?string $observaciones,
+        ?float $efectivoRealCajera,
+    ): TurnoCaja {
+        if (! $turno->isOpen()) {
+            throw new HttpException(422, 'Este turno de caja ya está cerrado por la cajera.');
+        }
+
+        $efectivoRealCajera ??= $efectivoReal;
+
+        return DB::transaction(function () use ($turno, $observaciones, $efectivoRealCajera) {
+            $totales = $this->sumVentasByPayment($turno);
+
+            $turno->fill([
+                'total_ventas_efectivo' => $totales['efectivo'],
+                'total_ventas_tarjeta' => $totales['tarjeta'],
+                'total_ventas_transferencia' => $totales['transferencia'],
+                'total_ventas' => $totales['total'],
+                'efectivo_esperado' => $totales['efectivo'],
+                'efectivo_real_cajera' => round($efectivoRealCajera, 2),
+                'fecha_cierre_cajera' => now(),
+                'status' => TurnoCaja::STATUS_CERRADO,
+                // El administrador aún debe cerrar el corte.
+                'status_administrador' => TurnoCaja::STATUS_ABIERTO,
+                'observaciones_cierre' => $observaciones,
+            ]);
+            $turno->save();
+
+            return $turno->refresh()->load($this->turnoRelations());
+        });
+    }
+
+    /**
+     * Cierre de administrador: cierra status_administrador (y status si aún estaba abierto).
+     */
+    private function cerrarPorAdministrador(
+        TurnoCaja $turno,
+        float $efectivoReal,
+        ?string $observaciones,
+        ?float $efectivoRealCajera,
+    ): TurnoCaja {
+        if (! $turno->isAdminOpen()) {
+            throw new HttpException(422, 'Este corte de caja ya fue cerrado por el administrador.');
+        }
+
+        return DB::transaction(function () use ($turno, $efectivoReal, $observaciones, $efectivoRealCajera) {
+            $totales = $this->sumVentasByPayment($turno);
+
+            $efectivoEsperado = $totales['efectivo'];
+            $pagosProveedores = (float) $turno->total_pagos_proveedores;
+            $gastosOperativos = (float) $turno->total_gastos_operativos;
+
+            $diferencia = round(
+                $efectivoEsperado - $efectivoReal - $pagosProveedores - $gastosOperativos,
+                2
+            );
+
+            $payload = [
+                'total_ventas_efectivo' => $totales['efectivo'],
+                'total_ventas_tarjeta' => $totales['tarjeta'],
+                'total_ventas_transferencia' => $totales['transferencia'],
+                'total_ventas' => $totales['total'],
+                'efectivo_esperado' => $efectivoEsperado,
+                'efectivo_real' => round($efectivoReal, 2),
+                'diferencia' => $diferencia,
+                'status' => TurnoCaja::STATUS_CERRADO,
+                'status_administrador' => TurnoCaja::STATUS_CERRADO,
+                'fecha_cierre' => now(),
+                'observaciones_cierre' => $observaciones ?? $turno->observaciones_cierre,
+            ];
+
+            if ($efectivoRealCajera !== null) {
+                $payload['efectivo_real_cajera'] = round($efectivoRealCajera, 2);
+                $payload['fecha_cierre_cajera'] = $turno->fecha_cierre_cajera ?? now();
+            }
+
+            $turno->fill($payload);
+            $turno->save();
+
+            return $turno->refresh()->load($this->turnoRelations());
+        });
+    }
+
+    /**
+     * No se puede abrir turno si hay un corte pendiente de cierre del administrador.
+     */
+    private function assertNoPendingAdminClose(Negocio $negocio, int $sucursalId): void
+    {
+        $pendiente = TurnoCaja::query()
+            ->where('negocio_id', $negocio->id)
+            ->where('sucursal_id', $sucursalId)
+            ->where('status_administrador', TurnoCaja::STATUS_ABIERTO)
+            ->latest('id')
+            ->first();
+
+        if (! $pendiente) {
+            return;
+        }
+
+        throw new HttpException(
+            422,
+            'Existe un corte abierto para el administrador. No se puede abrir turno hasta que se cierre ese corte.',
+        );
+    }
+
+    /**
+     * Dueño / corteCaja → cierre administrador.
+     * Solo corteCajaCajera → cierre cajera.
+     */
+    private function isCajeraClose(User|Staff $actor): bool
+    {
+        if ($actor instanceof User) {
+            return false;
+        }
+
+        return ! $this->staffHasCorteAdmin($actor)
+            && (bool) $actor->role?->allows('corteCajaCajera');
+    }
+
+    private function staffHasCorteAdmin(Staff $actor): bool
+    {
+        $actor->loadMissing('role');
+
+        return (bool) $actor->role?->allows('corteCaja');
+    }
+
+    /**
+     * Dueño del negocio siempre puede.
+     * Staff requiere corteCaja (admin) o corteCajaCajera (cajera).
      */
     private function assertCanCorteCaja(User|Staff $actor): void
     {
@@ -249,7 +392,10 @@ class TurnoCajaService
 
         $actor->loadMissing('role');
 
-        if (! $actor->role?->allows('corteCaja')) {
+        $canCorte = (bool) $actor->role?->allows('corteCaja')
+            || (bool) $actor->role?->allows('corteCajaCajera');
+
+        if (! $canCorte) {
             throw new HttpException(403, 'No tienes permiso para realizar el corte de caja.');
         }
     }
@@ -257,6 +403,18 @@ class TurnoCajaService
     private function assertCanManageTurno(TurnoCaja $turno, User|Staff $actor): void
     {
         if ($actor instanceof Staff) {
+            $actor->loadMissing('role');
+
+            // Staff con corteCaja (admin) puede cerrar cortes de su negocio.
+            if ($actor->role?->allows('corteCaja')) {
+                if ((int) $turno->negocio_id !== (int) $actor->negocio_id) {
+                    throw new HttpException(403, 'No puedes gestionar este turno de caja.');
+                }
+
+                return;
+            }
+
+            // Cajera solo su propio turno.
             if ((int) $turno->id_user !== (int) $actor->id) {
                 throw new HttpException(403, 'No puedes cerrar el turno de otra cajera.');
             }

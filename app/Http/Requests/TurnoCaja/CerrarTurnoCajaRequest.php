@@ -24,6 +24,15 @@ class CerrarTurnoCajaRequest extends FormRequest
             }
         }
 
+        if (! $this->exists('efectivo_real_cajera')) {
+            foreach (['efectivoRealCajera', 'efectivo_contado_cajera', 'efectivoContadoCajera'] as $alias) {
+                if ($this->exists($alias)) {
+                    $merge['efectivo_real_cajera'] = $this->input($alias);
+                    break;
+                }
+            }
+        }
+
         if (! $this->exists('observaciones_cierre')) {
             foreach (['observaciones', 'observacionesCierre', 'notas_cierre', 'notas'] as $alias) {
                 if ($this->exists($alias)) {
@@ -45,6 +54,7 @@ class CerrarTurnoCajaRequest extends FormRequest
     {
         return [
             'efectivo_real' => ['required', 'numeric', 'min:0'],
+            'efectivo_real_cajera' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'observaciones_cierre' => ['sometimes', 'nullable', 'string', 'max:2000'],
         ];
     }
@@ -57,6 +67,7 @@ class CerrarTurnoCajaRequest extends FormRequest
         return [
             'efectivo_real.required' => 'Debes indicar el efectivo real contado en caja.',
             'efectivo_real.min' => 'El efectivo real no puede ser negativo.',
+            'efectivo_real_cajera.min' => 'El efectivo real de la cajera no puede ser negativo.',
         ];
     }
 }

@@ -33,10 +33,13 @@ class TurnoCaja extends Model
         'total_gastos_operativos',
         'efectivo_esperado',
         'efectivo_real',
+        'efectivo_real_cajera',
         'diferencia',
         'status',
+        'status_administrador',
         'fecha_apertura',
         'fecha_cierre',
+        'fecha_cierre_cajera',
         'observaciones_cierre',
     ];
 
@@ -52,15 +55,22 @@ class TurnoCaja extends Model
             'total_gastos_operativos' => 'decimal:2',
             'efectivo_esperado' => 'decimal:2',
             'efectivo_real' => 'decimal:2',
+            'efectivo_real_cajera' => 'decimal:2',
             'diferencia' => 'decimal:2',
             'fecha_apertura' => 'datetime',
             'fecha_cierre' => 'datetime',
+            'fecha_cierre_cajera' => 'datetime',
         ];
     }
 
     public function isOpen(): bool
     {
         return $this->status === self::STATUS_ABIERTO;
+    }
+
+    public function isAdminOpen(): bool
+    {
+        return $this->status_administrador === self::STATUS_ABIERTO;
     }
 
     public function cajera(): BelongsTo

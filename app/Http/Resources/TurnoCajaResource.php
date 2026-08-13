@@ -43,10 +43,16 @@ class TurnoCajaResource extends JsonResource
             'total_gastos_operativos' => (string) $this->total_gastos_operativos,
             'efectivo_esperado' => (string) $this->efectivo_esperado,
             'efectivo_real' => $this->efectivo_real !== null ? (string) $this->efectivo_real : null,
+            'efectivo_real_cajera' => $this->efectivo_real_cajera !== null
+                ? (string) $this->efectivo_real_cajera
+                : null,
             'diferencia' => $this->diferencia !== null ? (string) $this->diferencia : null,
             'status' => $this->status,
+            'status_administrador' => $this->status_administrador,
+            'statusAdministrador' => $this->status_administrador,
             'fecha_apertura' => $this->fecha_apertura?->toIso8601String(),
             'fecha_cierre' => $this->fecha_cierre?->toIso8601String(),
+            'fecha_cierre_cajera' => $this->fecha_cierre_cajera?->toIso8601String(),
             'observaciones_cierre' => $this->observaciones_cierre,
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),

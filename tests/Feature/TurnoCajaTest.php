@@ -33,6 +33,7 @@ class TurnoCajaTest extends TestCase
         ])
             ->assertCreated()
             ->assertJsonPath('data.turno.status', TurnoCaja::STATUS_ABIERTO)
+            ->assertJsonPath('data.turno.status_administrador', TurnoCaja::STATUS_ABIERTO)
             ->assertJsonPath('data.turno.fondo_inicial', '500.00');
 
         $this->postJson('/api/ordenes', [
@@ -87,13 +88,14 @@ class TurnoCajaTest extends TestCase
             ->assertJsonPath('data.preview.total_ventas', 220)
             ->assertJsonPath('data.preview.efectivo_esperado', 100);
 
-        // esperado 100 - real 90 - 0 - 0 = 10
+        // Staff con corteCaja = cierre administrador (completo)
         $this->postJson("/api/turnos-caja/{$turnoId}/cerrar", [
             'efectivo_real' => 90,
             'observaciones' => 'Faltante de 10',
         ])
             ->assertOk()
             ->assertJsonPath('data.turno.status', TurnoCaja::STATUS_CERRADO)
+            ->assertJsonPath('data.turno.status_administrador', TurnoCaja::STATUS_CERRADO)
             ->assertJsonPath('data.turno.total_ventas_efectivo', '100.00')
             ->assertJsonPath('data.turno.total_ventas_tarjeta', '80.00')
             ->assertJsonPath('data.turno.total_ventas_transferencia', '40.00')
@@ -147,6 +149,80 @@ class TurnoCajaTest extends TestCase
             ->assertJsonPath('message', 'No tienes permiso para realizar el corte de caja.');
     }
 
+    public function test_staff_with_corte_caja_cajera_can_close_turno(): void
+    {
+        [$user, $negocio, $sucursal, $producto, $staff] = $this->seedCajaContext();
+
+        $permissions = Role::defaultPermissions();
+        $permissions['corteCaja'] = false;
+        $permissions['corteCajaCajera'] = true;
+        $staff->role->update(['permissions' => $permissions]);
+
+        Sanctum::actingAs($staff);
+
+        $turnoId = $this->postJson('/api/turnos-caja/abrir', [
+            'fondo_inicial' => 100,
+        ])->assertCreated()->json('data.turno.id');
+
+        $this->postJson("/api/turnos-caja/{$turnoId}/cerrar", [
+            'efectivo_real' => 100,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.turno.status', TurnoCaja::STATUS_CERRADO)
+            ->assertJsonPath('data.turno.status_administrador', TurnoCaja::STATUS_ABIERTO)
+            ->assertJsonPath('data.turno.efectivo_real_cajera', '100.00');
+
+        $this->assertNotNull(TurnoCaja::query()->find($turnoId)?->fecha_cierre_cajera);
+        $this->assertNull(TurnoCaja::query()->find($turnoId)?->fecha_cierre);
+    }
+
+    public function test_cannot_open_turno_while_admin_cut_is_pending(): void
+    {
+        [$user, $negocio, $sucursal, $producto, $staff] = $this->seedCajaContext();
+
+        $permissions = Role::defaultPermissions();
+        $permissions['corteCaja'] = false;
+        $permissions['corteCajaCajera'] = true;
+        $staff->role->update(['permissions' => $permissions]);
+
+        Sanctum::actingAs($staff);
+
+        $turnoId = $this->postJson('/api/turnos-caja/abrir', [
+            'fondo_inicial' => 100,
+        ])->assertCreated()->json('data.turno.id');
+
+        $this->postJson("/api/turnos-caja/{$turnoId}/cerrar", [
+            'efectivo_real' => 100,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.turno.status', TurnoCaja::STATUS_CERRADO)
+            ->assertJsonPath('data.turno.status_administrador', TurnoCaja::STATUS_ABIERTO);
+
+        $this->postJson('/api/turnos-caja/abrir', [
+            'fondo_inicial' => 50,
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath(
+                'message',
+                'Existe un corte abierto para el administrador. No se puede abrir turno hasta que se cierre ese corte.'
+            );
+
+        Sanctum::actingAs($user);
+        $this->postJson("/api/turnos-caja/{$turnoId}/cerrar", [
+            'efectivo_real' => 100,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.turno.status_administrador', TurnoCaja::STATUS_CERRADO);
+
+        Sanctum::actingAs($staff);
+        $this->postJson('/api/turnos-caja/abrir', [
+            'fondo_inicial' => 50,
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.turno.status', TurnoCaja::STATUS_ABIERTO)
+            ->assertJsonPath('data.turno.status_administrador', TurnoCaja::STATUS_ABIERTO);
+    }
+
     public function test_owner_can_close_turno_without_role_permission(): void
     {
         [$user, $negocio, $sucursal, $producto, $staff] = $this->seedCajaContext();
@@ -162,7 +238,36 @@ class TurnoCajaTest extends TestCase
             'efectivo_real' => 50,
         ])
             ->assertOk()
-            ->assertJsonPath('data.turno.status', TurnoCaja::STATUS_CERRADO);
+            ->assertJsonPath('data.turno.status', TurnoCaja::STATUS_CERRADO)
+            ->assertJsonPath('data.turno.status_administrador', TurnoCaja::STATUS_CERRADO);
+    }
+
+    public function test_index_includes_turnos_administrador_pending(): void
+    {
+        [$user, $negocio, $sucursal, $producto, $staff] = $this->seedCajaContext();
+
+        $permissions = Role::defaultPermissions();
+        $permissions['corteCaja'] = false;
+        $permissions['corteCajaCajera'] = true;
+        $staff->role->update(['permissions' => $permissions]);
+
+        Sanctum::actingAs($staff);
+        $turnoId = $this->postJson('/api/turnos-caja/abrir', [
+            'fondo_inicial' => 80,
+        ])->assertCreated()->json('data.turno.id');
+
+        $this->postJson("/api/turnos-caja/{$turnoId}/cerrar", [
+            'efectivo_real' => 80,
+        ])->assertOk();
+
+        Sanctum::actingAs($user);
+        $this->getJson('/api/turnos-caja?sucursal_id='.$sucursal->id.'&status=cerrado&page=1')
+            ->assertOk()
+            ->assertJsonPath('data.turnos.0.id', $turnoId)
+            ->assertJsonPath('data.turnos.0.status', TurnoCaja::STATUS_CERRADO)
+            ->assertJsonPath('data.turnosAdminsitrador.0.id', $turnoId)
+            ->assertJsonPath('data.turnosAdminsitrador.0.status_administrador', TurnoCaja::STATUS_ABIERTO)
+            ->assertJsonPath('data.turnosAdministrador.0.id', $turnoId);
     }
 
     /**

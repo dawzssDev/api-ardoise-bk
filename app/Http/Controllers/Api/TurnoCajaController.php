@@ -22,12 +22,18 @@ class TurnoCajaController extends Controller
     {
         try {
             $negocio = $this->turnos->negocioForUser($request->user());
+            $sucursalId = $request->filled('sucursal_id') ? (int) $request->integer('sucursal_id') : null;
             $paginator = $this->turnos->listForNegocio(
                 $negocio,
                 $request->user(),
                 perPage: (int) $request->integer('per_page', 15),
-                sucursalId: $request->filled('sucursal_id') ? (int) $request->integer('sucursal_id') : null,
+                sucursalId: $sucursalId,
                 status: $request->filled('status') ? (string) $request->input('status') : null,
+            );
+            $turnosAdministrador = $this->turnos->listPendientesAdministrador(
+                $negocio,
+                $request->user(),
+                $sucursalId,
             );
         } catch (HttpException $e) {
             return $this->errorResponse($e);
@@ -38,6 +44,8 @@ class TurnoCajaController extends Controller
             'message' => 'ok',
             'data' => [
                 'turnos' => TurnoCajaResource::collection($paginator->items())->resolve(),
+                'turnosAdminsitrador' => TurnoCajaResource::collection($turnosAdministrador)->resolve(),
+                'turnosAdministrador' => TurnoCajaResource::collection($turnosAdministrador)->resolve(),
                 'meta' => [
                     'current_page' => $paginator->currentPage(),
                     'last_page' => $paginator->lastPage(),
@@ -107,7 +115,7 @@ class TurnoCajaController extends Controller
             'message' => 'ok',
             'data' => [
                 'turno' => (new TurnoCajaResource($turno))->resolve(),
-                'preview_cierre' => $turno->isOpen()
+                'preview_cierre' => $turno->isAdminOpen()
                     ? $this->turnos->previewCierre($turno)
                     : null,
             ],
@@ -120,8 +128,8 @@ class TurnoCajaController extends Controller
         try {
             $negocio = $this->turnos->negocioForUser($request->user());
             $turno = $this->turnos->findForNegocio($negocio, $id);
-            if (! $turno->isOpen()) {
-                throw new HttpException(422, 'El turno ya está cerrado.');
+            if (! $turno->isAdminOpen()) {
+                throw new HttpException(422, 'El corte de caja ya fue cerrado por el administrador.');
             }
             $preview = $this->turnos->previewCierre($turno);
         } catch (HttpException $e) {
@@ -150,6 +158,9 @@ class TurnoCajaController extends Controller
                 $request->user(),
                 (float) $data['efectivo_real'],
                 $data['observaciones_cierre'] ?? null,
+                array_key_exists('efectivo_real_cajera', $data) && $data['efectivo_real_cajera'] !== null
+                    ? (float) $data['efectivo_real_cajera']
+                    : null,
             );
         } catch (HttpException $e) {
             return $this->errorResponse($e);

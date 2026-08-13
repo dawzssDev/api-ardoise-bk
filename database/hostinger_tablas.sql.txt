@@ -752,10 +752,13 @@ CREATE TABLE `tb_turnos_cajas` (
   `total_gastos_operativos` decimal(12,2) NOT NULL DEFAULT 0.00,
   `efectivo_esperado` decimal(12,2) NOT NULL DEFAULT 0.00,
   `efectivo_real` decimal(12,2) NULL DEFAULT NULL,
+  `efectivo_real_cajera` decimal(12,2) NULL DEFAULT NULL,
   `diferencia` decimal(12,2) NULL DEFAULT NULL,
   `status` varchar(20) NOT NULL DEFAULT 'abierto',
+  `status_administrador` varchar(20) NOT NULL DEFAULT 'abierto',
   `fecha_apertura` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `fecha_cierre` timestamp NULL DEFAULT NULL,
+  `fecha_cierre_cajera` timestamp NULL DEFAULT NULL,
   `observaciones_cierre` text NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -765,6 +768,7 @@ CREATE TABLE `tb_turnos_cajas` (
   KEY `tb_turnos_cajas_negocio_id_foreign` (`negocio_id`),
   KEY `tb_turnos_cajas_sucursal_id_foreign` (`sucursal_id`),
   KEY `tb_turnos_cajas_negocio_id_sucursal_id_status_index` (`negocio_id`, `sucursal_id`, `status`),
+  KEY `tb_turnos_cajas_negocio_sucursal_status_admin_index` (`negocio_id`, `sucursal_id`, `status_administrador`),
   KEY `tb_turnos_cajas_id_user_status_index` (`id_user`, `status`),
   KEY `tb_turnos_cajas_user_id_status_index` (`user_id`, `status`),
   CONSTRAINT `tb_turnos_cajas_id_user_foreign`
@@ -1015,6 +1019,34 @@ INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_08_10_020000_add_diferir_cobro_to_tb_tipos_venta_table', 1),
 ('2026_08_10_021000_create_tb_cuentas_por_cobrar_table', 1),
 ('2026_08_10_022000_add_diferido_to_orden_detalles_table', 1);
+
+================================================================================
+ALTER tb_turnos_cajas — efectivo_real_cajera + fecha_cierre_cajera
+================================================================================
+-- Si `tb_turnos_cajas` ya existe sin estos campos, ejecuta:
+ALTER TABLE `tb_turnos_cajas`
+  ADD COLUMN `efectivo_real_cajera` decimal(12,2) NULL DEFAULT NULL AFTER `efectivo_real`,
+  ADD COLUMN `fecha_cierre_cajera` timestamp NULL DEFAULT NULL AFTER `fecha_cierre`;
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_08_11_010000_add_cierre_cajera_to_tb_turnos_cajas_table', 1);
+
+================================================================================
+ALTER tb_turnos_cajas — status_administrador
+================================================================================
+-- status = cierre cajera | status_administrador = cierre admin (completo)
+-- Si ya existe la tabla sin este campo:
+ALTER TABLE `tb_turnos_cajas`
+  ADD COLUMN `status_administrador` varchar(20) NOT NULL DEFAULT 'abierto' AFTER `status`,
+  ADD KEY `tb_turnos_cajas_negocio_sucursal_status_admin_index` (`negocio_id`, `sucursal_id`, `status_administrador`);
+
+-- Alinear turnos ya cerrados por completo:
+UPDATE `tb_turnos_cajas`
+SET `status_administrador` = 'cerrado'
+WHERE `status` = 'cerrado';
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_08_11_020000_add_status_administrador_to_tb_turnos_cajas_table', 1);
 
 ================================================================================
 FIN

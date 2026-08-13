@@ -29,6 +29,8 @@ class Role extends Model
         'enPreparacionPedido',
         'pedidosListos',
         'corteCaja',
+        'cuentas_por_cobrar',
+        'corteCajaCajera',
     ];
 
     /**
@@ -47,6 +49,9 @@ class Role extends Model
         'listos' => 'pedidosListos',
         'pedidos_listos' => 'pedidosListos',
         'ready' => 'pedidosListos',
+        'corte_caja' => 'corteCaja',
+        'corte_caja_cajera' => 'corteCajaCajera',
+        'cuentasPorCobrar' => 'cuentas_por_cobrar',
     ];
 
     protected $fillable = [
