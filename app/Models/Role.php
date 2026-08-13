@@ -31,6 +31,8 @@ class Role extends Model
         'corteCaja',
         'cuentas_por_cobrar',
         'corteCajaCajera',
+        'ventaDirecta',
+        'levantarOrden',
     ];
 
     /**
@@ -52,6 +54,8 @@ class Role extends Model
         'corte_caja' => 'corteCaja',
         'corte_caja_cajera' => 'corteCajaCajera',
         'cuentasPorCobrar' => 'cuentas_por_cobrar',
+        'venta_directa' => 'ventaDirecta',
+        'levantar_orden' => 'levantarOrden',
     ];
 
     protected $fillable = [

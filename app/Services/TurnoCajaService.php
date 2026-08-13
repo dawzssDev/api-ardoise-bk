@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\GastoEnTurno;
 use App\Models\Negocio;
 use App\Models\Orden;
 use App\Models\Staff;
@@ -44,6 +45,7 @@ class TurnoCajaService
             'fondo_inicial' => $fondo,
             'total_pagos_proveedores' => 0,
             'total_gastos_operativos' => 0,
+            'total_retiros_efectivo' => 0,
             'status' => TurnoCaja::STATUS_ABIERTO,
             'status_administrador' => TurnoCaja::STATUS_ABIERTO,
             'fecha_apertura' => now(),
@@ -205,6 +207,80 @@ class TurnoCajaService
     }
 
     /**
+     * @param  array{tipo_gasto: string, descripcion: string, monto: float|int|string}  $data
+     */
+    public function registrarGasto(TurnoCaja $turno, User|Staff $actor, array $data): GastoEnTurno
+    {
+        $this->assertCanRegisterGasto($turno, $actor);
+
+        if (! $turno->isOpen()) {
+            throw new HttpException(422, 'No puedes registrar gastos en un turno cerrado.');
+        }
+
+        $tipo = GastoEnTurno::normalizeTipo($data['tipo_gasto'] ?? null);
+        if ($tipo === null) {
+            throw new HttpException(422, 'El tipo de gasto no es válido.');
+        }
+
+        $monto = round((float) $data['monto'], 2);
+        if ($monto <= 0) {
+            throw new HttpException(422, 'El monto debe ser mayor a cero.');
+        }
+
+        return DB::transaction(function () use ($turno, $actor, $data, $tipo, $monto) {
+            $gasto = GastoEnTurno::query()->create([
+                'turno_caja_id' => $turno->id,
+                'id_user' => $actor instanceof Staff ? $actor->id : $turno->id_user,
+                'user_id' => $actor instanceof User ? $actor->id : $this->auditUserId($actor, $turno->negocio),
+                'negocio_id' => $turno->negocio_id,
+                'sucursal_id' => $turno->sucursal_id,
+                'tipo_gasto' => $tipo,
+                'descripcion' => trim((string) $data['descripcion']),
+                'monto' => $monto,
+                'fecha_registro' => now(),
+            ]);
+
+            $this->syncGastoTotals($turno);
+
+            return $gasto->refresh();
+        });
+    }
+
+    public function listGastos(TurnoCaja $turno, int $perPage = 50): LengthAwarePaginator
+    {
+        return $turno->gastos()
+            ->with([
+                'cajero:id,username,sucursal_id',
+                'user:id,name,email',
+                'sucursal:id,negocio_id,type,name',
+            ])
+            ->latest('id')
+            ->paginate($perPage);
+    }
+
+    /**
+     * @return array{pago_proveedor: float, gasto_operativo: float, retiro_efectivo: float, total: float}
+     */
+    public function sumGastosByTipo(TurnoCaja $turno): array
+    {
+        $rows = $turno->gastos()
+            ->selectRaw('tipo_gasto, SUM(monto) as suma')
+            ->groupBy('tipo_gasto')
+            ->pluck('suma', 'tipo_gasto');
+
+        $pagoProveedor = round((float) ($rows[GastoEnTurno::TIPO_PAGO_PROVEEDOR] ?? 0), 2);
+        $gastoOperativo = round((float) ($rows[GastoEnTurno::TIPO_GASTO_OPERATIVO] ?? 0), 2);
+        $retiroEfectivo = round((float) ($rows[GastoEnTurno::TIPO_RETIRO_EFECTIVO] ?? 0), 2);
+
+        return [
+            'pago_proveedor' => $pagoProveedor,
+            'gasto_operativo' => $gastoOperativo,
+            'retiro_efectivo' => $retiroEfectivo,
+            'total' => round($pagoProveedor + $gastoOperativo + $retiroEfectivo, 2),
+        ];
+    }
+
+    /**
      * @return array{efectivo: float, tarjeta: float, transferencia: float, total: float}
      */
     public function sumVentasByPayment(TurnoCaja $turno): array
@@ -234,14 +310,16 @@ class TurnoCajaService
     public function previewCierre(TurnoCaja $turno): array
     {
         $totales = $this->sumVentasByPayment($turno);
+        $gastos = $this->sumGastosByTipo($turno);
 
         return [
             'total_ventas_efectivo' => $totales['efectivo'],
             'total_ventas_tarjeta' => $totales['tarjeta'],
             'total_ventas_transferencia' => $totales['transferencia'],
             'total_ventas' => $totales['total'],
-            'total_pagos_proveedores' => (float) $turno->total_pagos_proveedores,
-            'total_gastos_operativos' => (float) $turno->total_gastos_operativos,
+            'total_pagos_proveedores' => $gastos['pago_proveedor'],
+            'total_gastos_operativos' => $gastos['gasto_operativo'],
+            'total_retiros_efectivo' => $gastos['retiro_efectivo'],
             'efectivo_esperado' => $totales['efectivo'],
             'fondo_inicial' => (float) $turno->fondo_inicial,
             'status' => $turno->status,
@@ -266,12 +344,16 @@ class TurnoCajaService
 
         return DB::transaction(function () use ($turno, $observaciones, $efectivoRealCajera) {
             $totales = $this->sumVentasByPayment($turno);
+            $gastos = $this->sumGastosByTipo($turno);
 
             $turno->fill([
                 'total_ventas_efectivo' => $totales['efectivo'],
                 'total_ventas_tarjeta' => $totales['tarjeta'],
                 'total_ventas_transferencia' => $totales['transferencia'],
                 'total_ventas' => $totales['total'],
+                'total_pagos_proveedores' => $gastos['pago_proveedor'],
+                'total_gastos_operativos' => $gastos['gasto_operativo'],
+                'total_retiros_efectivo' => $gastos['retiro_efectivo'],
                 'efectivo_esperado' => $totales['efectivo'],
                 'efectivo_real_cajera' => round($efectivoRealCajera, 2),
                 'fecha_cierre_cajera' => now(),
@@ -301,13 +383,15 @@ class TurnoCajaService
 
         return DB::transaction(function () use ($turno, $efectivoReal, $observaciones, $efectivoRealCajera) {
             $totales = $this->sumVentasByPayment($turno);
+            $gastos = $this->sumGastosByTipo($turno);
 
             $efectivoEsperado = $totales['efectivo'];
-            $pagosProveedores = (float) $turno->total_pagos_proveedores;
-            $gastosOperativos = (float) $turno->total_gastos_operativos;
+            $pagosProveedores = $gastos['pago_proveedor'];
+            $gastosOperativos = $gastos['gasto_operativo'];
+            $retirosEfectivo = $gastos['retiro_efectivo'];
 
             $diferencia = round(
-                $efectivoEsperado - $efectivoReal - $pagosProveedores - $gastosOperativos,
+                $efectivoEsperado - $efectivoReal - $pagosProveedores - $gastosOperativos - $retirosEfectivo,
                 2
             );
 
@@ -316,6 +400,9 @@ class TurnoCajaService
                 'total_ventas_tarjeta' => $totales['tarjeta'],
                 'total_ventas_transferencia' => $totales['transferencia'],
                 'total_ventas' => $totales['total'],
+                'total_pagos_proveedores' => $pagosProveedores,
+                'total_gastos_operativos' => $gastosOperativos,
+                'total_retiros_efectivo' => $retirosEfectivo,
                 'efectivo_esperado' => $efectivoEsperado,
                 'efectivo_real' => round($efectivoReal, 2),
                 'diferencia' => $diferencia,
@@ -335,6 +422,42 @@ class TurnoCajaService
 
             return $turno->refresh()->load($this->turnoRelations());
         });
+    }
+
+    private function syncGastoTotals(TurnoCaja $turno): void
+    {
+        $gastos = $this->sumGastosByTipo($turno);
+
+        $turno->forceFill([
+            'total_pagos_proveedores' => $gastos['pago_proveedor'],
+            'total_gastos_operativos' => $gastos['gasto_operativo'],
+            'total_retiros_efectivo' => $gastos['retiro_efectivo'],
+        ])->save();
+    }
+
+    private function assertCanRegisterGasto(TurnoCaja $turno, User|Staff $actor): void
+    {
+        if ($actor instanceof Staff) {
+            $actor->loadMissing('role');
+
+            if ($actor->role?->allows('corteCaja')) {
+                if ((int) $turno->negocio_id !== (int) $actor->negocio_id) {
+                    throw new HttpException(403, 'No puedes registrar gastos en este turno de caja.');
+                }
+
+                return;
+            }
+
+            if ((int) $turno->id_user !== (int) $actor->id) {
+                throw new HttpException(403, 'No puedes registrar gastos en el turno de otra cajera.');
+            }
+
+            return;
+        }
+
+        if ((int) $turno->negocio_id !== (int) ($actor->negocio?->id)) {
+            throw new HttpException(403, 'No puedes registrar gastos en este turno de caja.');
+        }
     }
 
     /**

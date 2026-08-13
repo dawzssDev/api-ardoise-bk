@@ -41,6 +41,7 @@ class TurnoCajaResource extends JsonResource
             'total_ventas' => (string) $this->total_ventas,
             'total_pagos_proveedores' => (string) $this->total_pagos_proveedores,
             'total_gastos_operativos' => (string) $this->total_gastos_operativos,
+            'total_retiros_efectivo' => (string) $this->total_retiros_efectivo,
             'efectivo_esperado' => (string) $this->efectivo_esperado,
             'efectivo_real' => $this->efectivo_real !== null ? (string) $this->efectivo_real : null,
             'efectivo_real_cajera' => $this->efectivo_real_cajera !== null

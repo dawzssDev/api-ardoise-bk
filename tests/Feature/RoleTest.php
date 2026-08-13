@@ -45,6 +45,8 @@ class RoleTest extends TestCase
             ->assertJsonPath('data.role.permissions.enPreparacionPedido', true)
             ->assertJsonPath('data.role.permissions.pedidosListos', false)
             ->assertJsonPath('data.role.permissions.corteCaja', false)
+            ->assertJsonPath('data.role.permissions.ventaDirecta', false)
+            ->assertJsonPath('data.role.permissions.levantarOrden', false)
             ->assertJsonPath('data.role.status', true);
 
         $this->assertDatabaseHas('roles', [
@@ -79,6 +81,8 @@ class RoleTest extends TestCase
         $permissions['enPreparacionPedido'] = true;
         $permissions['pedidosListos'] = false;
         $permissions['corteCaja'] = true;
+        $permissions['ventaDirecta'] = true;
+        $permissions['levantarOrden'] = true;
 
         $response = $this->putJson("/api/roles/{$role->id}", [
             'permissions' => $permissions,
@@ -89,7 +93,9 @@ class RoleTest extends TestCase
             ->assertJsonPath('data.role.permissions.nuevoPedido', true)
             ->assertJsonPath('data.role.permissions.enPreparacionPedido', true)
             ->assertJsonPath('data.role.permissions.pedidosListos', false)
-            ->assertJsonPath('data.role.permissions.corteCaja', true);
+            ->assertJsonPath('data.role.permissions.corteCaja', true)
+            ->assertJsonPath('data.role.permissions.ventaDirecta', true)
+            ->assertJsonPath('data.role.permissions.levantarOrden', true);
     }
 
     public function test_update_accepts_kitchen_column_aliases(): void

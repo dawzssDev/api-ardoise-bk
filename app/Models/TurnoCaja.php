@@ -31,6 +31,7 @@ class TurnoCaja extends Model
         'total_ventas',
         'total_pagos_proveedores',
         'total_gastos_operativos',
+        'total_retiros_efectivo',
         'efectivo_esperado',
         'efectivo_real',
         'efectivo_real_cajera',
@@ -53,6 +54,7 @@ class TurnoCaja extends Model
             'total_ventas' => 'decimal:2',
             'total_pagos_proveedores' => 'decimal:2',
             'total_gastos_operativos' => 'decimal:2',
+            'total_retiros_efectivo' => 'decimal:2',
             'efectivo_esperado' => 'decimal:2',
             'efectivo_real' => 'decimal:2',
             'efectivo_real_cajera' => 'decimal:2',
@@ -96,5 +98,10 @@ class TurnoCaja extends Model
     public function ventas(): HasMany
     {
         return $this->hasMany(Venta::class, 'turno_caja_id');
+    }
+
+    public function gastos(): HasMany
+    {
+        return $this->hasMany(GastoEnTurno::class, 'turno_caja_id');
     }
 }

@@ -750,6 +750,7 @@ CREATE TABLE `tb_turnos_cajas` (
   `total_ventas` decimal(12,2) NOT NULL DEFAULT 0.00,
   `total_pagos_proveedores` decimal(12,2) NOT NULL DEFAULT 0.00,
   `total_gastos_operativos` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `total_retiros_efectivo` decimal(12,2) NOT NULL DEFAULT 0.00,
   `efectivo_esperado` decimal(12,2) NOT NULL DEFAULT 0.00,
   `efectivo_real` decimal(12,2) NULL DEFAULT NULL,
   `efectivo_real_cajera` decimal(12,2) NULL DEFAULT NULL,
@@ -838,9 +839,10 @@ RESUMEN (orden de creación)
  1l. ordenes             ← FK a negocios + sucursales + users
  1m. orden_detalles      ← FK a ordenes + productos (+ tipo_venta vía ALTER)
  1n. tb_turnos_cajas     ← FK a staff + users + negocios + sucursales
- 1o. tb_ventas           ← FK a tb_turnos_cajas + staff + ordenes
- 1p. tb_tipos_venta      ← FK a negocios (ver sección al final)
- 1q. tb_cuentas_por_cobrar ← FK a negocios + sucursales + empleados + ordenes (ver sección al final)
+  1o. tb_ventas           ← FK a tb_turnos_cajas + staff + ordenes
+  1p. tb_tipos_venta      ← FK a negocios (ver sección al final)
+  1q. tb_cuentas_por_cobrar ← FK a negocios + sucursales + empleados + ordenes (ver sección al final)
+  1r. tb_gastos_en_turno  ← FK a tb_turnos_cajas + staff + users + negocios + sucursales
  2. password_reset_tokens
  3. sessions
  4. cache
@@ -1047,6 +1049,55 @@ WHERE `status` = 'cerrado';
 
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_08_11_020000_add_status_administrador_to_tb_turnos_cajas_table', 1);
+
+================================================================================
+1r) tb_gastos_en_turno  (pagos / gastos / retiros durante el turno)
+================================================================================
+-- tipo_gasto: pago_proveedor | gasto_operativo | retiro_efectivo
+-- id_user = cajero (staff) que registró el movimiento
+-- user_id = maestro (si el dueño registra el gasto)
+CREATE TABLE `tb_gastos_en_turno` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `turno_caja_id` bigint UNSIGNED NOT NULL,
+  `id_user` bigint UNSIGNED NULL DEFAULT NULL,
+  `user_id` bigint UNSIGNED NULL DEFAULT NULL,
+  `negocio_id` bigint UNSIGNED NOT NULL,
+  `sucursal_id` bigint UNSIGNED NOT NULL,
+  `tipo_gasto` varchar(30) NOT NULL,
+  `descripcion` varchar(500) NOT NULL,
+  `monto` decimal(12,2) NOT NULL,
+  `fecha_registro` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `tb_gastos_en_turno_turno_caja_id_foreign` (`turno_caja_id`),
+  KEY `tb_gastos_en_turno_id_user_foreign` (`id_user`),
+  KEY `tb_gastos_en_turno_user_id_foreign` (`user_id`),
+  KEY `tb_gastos_en_turno_negocio_id_foreign` (`negocio_id`),
+  KEY `tb_gastos_en_turno_sucursal_id_foreign` (`sucursal_id`),
+  KEY `tb_gastos_en_turno_turno_caja_id_tipo_gasto_index` (`turno_caja_id`, `tipo_gasto`),
+  KEY `tb_gastos_en_turno_negocio_sucursal_fecha_index` (`negocio_id`, `sucursal_id`, `fecha_registro`),
+  CONSTRAINT `tb_gastos_en_turno_turno_caja_id_foreign`
+    FOREIGN KEY (`turno_caja_id`) REFERENCES `tb_turnos_cajas` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `tb_gastos_en_turno_id_user_foreign`
+    FOREIGN KEY (`id_user`) REFERENCES `staff` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `tb_gastos_en_turno_user_id_foreign`
+    FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `tb_gastos_en_turno_negocio_id_foreign`
+    FOREIGN KEY (`negocio_id`) REFERENCES `negocios` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `tb_gastos_en_turno_sucursal_id_foreign`
+    FOREIGN KEY (`sucursal_id`) REFERENCES `sucursales` (`id`) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+================================================================================
+ALTER tb_turnos_cajas — total_retiros_efectivo
+================================================================================
+-- Si `tb_turnos_cajas` ya existe sin este campo, ejecuta:
+ALTER TABLE `tb_turnos_cajas`
+  ADD COLUMN `total_retiros_efectivo` decimal(12,2) NOT NULL DEFAULT 0.00 AFTER `total_gastos_operativos`;
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_08_12_010000_create_tb_gastos_en_turno_table', 1);
 
 ================================================================================
 FIN
