@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\ProductoController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\StaffController;
 use App\Http\Controllers\Api\StockInsumoController;
+use App\Http\Controllers\Api\StockProductoController;
 use App\Http\Controllers\Api\StripeWebhookController;
 use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\SucursalController;
@@ -124,6 +125,15 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::put('/stock-insumos/bulk', [StockInsumoController::class, 'bulkUpsert']);
     Route::get('/stock-insumos/{id}', [StockInsumoController::class, 'show'])->whereNumber('id');
     Route::put('/stock-insumos/{id}', [StockInsumoController::class, 'update'])->whereNumber('id');
+    Route::put('/stock-insumos/{id}/activa', [StockInsumoController::class, 'setActive'])->whereNumber('id');
+
+    // Stock de productos por sucursal (throttle:api = máx. 60 req/min)
+    Route::get('/stock-productos', [StockProductoController::class, 'index']);
+    Route::put('/stock-productos', [StockProductoController::class, 'upsert']);
+    Route::put('/stock-productos/bulk', [StockProductoController::class, 'bulkUpsert']);
+    Route::get('/stock-productos/{id}', [StockProductoController::class, 'show'])->whereNumber('id');
+    Route::put('/stock-productos/{id}', [StockProductoController::class, 'update'])->whereNumber('id');
+    Route::put('/stock-productos/{id}/activa', [StockProductoController::class, 'setActive'])->whereNumber('id');
 
     // Productos del negocio (throttle:api = máx. 60 req/min)
     Route::get('/productos', [ProductoController::class, 'index']);

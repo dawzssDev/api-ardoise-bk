@@ -67,7 +67,7 @@ class OrdenService
 
             $auditId = $this->auditUserId($actor, $negocio);
             $orderNumber = $this->nextOrderNumber($negocio, $sucursalId);
-            $lineRows = $this->buildDetalleRows($negocio, $data['detalles']);
+            $lineRows = $this->buildDetalleRows($negocio, $data['detalles'], $sucursalId);
 
             // Solo líneas NO diferidas suman al total cobrado hoy (caja).
             $total = collect($lineRows)
@@ -594,7 +594,7 @@ class OrdenService
      * @param  list<array<string, mixed>>  $detalles
      * @return list<array<string, mixed>>
      */
-    private function buildDetalleRows(Negocio $negocio, array $detalles): array
+    private function buildDetalleRows(Negocio $negocio, array $detalles, int $sucursalId): array
     {
         if ($detalles === []) {
             throw new HttpException(422, 'La orden debe incluir al menos un producto.');
@@ -609,6 +609,19 @@ class OrdenService
 
             if (! $producto) {
                 throw new HttpException(422, "El producto {$productoId} no pertenece a tu negocio.");
+            }
+
+            $stockInactivo = $negocio->stockProductos()
+                ->where('sucursal_id', $sucursalId)
+                ->where('producto_id', $producto->id)
+                ->where('is_active', false)
+                ->exists();
+
+            if ($stockInactivo) {
+                throw new HttpException(
+                    422,
+                    "El producto {$producto->name} no está disponible en esta sucursal.",
+                );
             }
 
             $quantity = (float) $item['quantity'];

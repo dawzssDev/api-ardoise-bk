@@ -19,6 +19,7 @@ class Role extends Model
         'insumos',
         'stock_insumos',
         'products',
+        'stock_products',
         'finance',
         'staff',
         'supply_requests',
@@ -56,6 +57,7 @@ class Role extends Model
         'cuentasPorCobrar' => 'cuentas_por_cobrar',
         'venta_directa' => 'ventaDirecta',
         'levantar_orden' => 'levantarOrden',
+        'stock_productos' => 'stock_products',
     ];
 
     protected $fillable = [

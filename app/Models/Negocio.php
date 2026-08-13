@@ -69,6 +69,11 @@ class Negocio extends Model
         return $this->hasMany(StockInsumo::class);
     }
 
+    public function stockProductos(): HasMany
+    {
+        return $this->hasMany(StockProducto::class);
+    }
+
     public function roles(): HasMany
     {
         return $this->hasMany(Role::class);

@@ -447,6 +447,7 @@ CREATE TABLE `stock_insumos` (
   `insumo_id` bigint UNSIGNED NOT NULL,
   `stock_fisico` decimal(14,3) NOT NULL DEFAULT 0.000,
   `stock_minimo` decimal(14,3) NOT NULL DEFAULT 0.000,
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
   `created_by` bigint UNSIGNED NOT NULL,
   `updated_by` bigint UNSIGNED NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -460,6 +461,7 @@ CREATE TABLE `stock_insumos` (
   KEY `stock_insumos_updated_by_foreign` (`updated_by`),
   KEY `stock_insumos_negocio_id_sucursal_id_index` (`negocio_id`, `sucursal_id`),
   KEY `stock_insumos_negocio_id_insumo_id_index` (`negocio_id`, `insumo_id`),
+  KEY `stock_insumos_sucursal_id_is_active_index` (`sucursal_id`, `is_active`),
   CONSTRAINT `stock_insumos_negocio_id_foreign`
     FOREIGN KEY (`negocio_id`) REFERENCES `negocios` (`id`) ON DELETE CASCADE,
   CONSTRAINT `stock_insumos_sucursal_id_foreign`
@@ -469,6 +471,50 @@ CREATE TABLE `stock_insumos` (
   CONSTRAINT `stock_insumos_created_by_foreign`
     FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   CONSTRAINT `stock_insumos_updated_by_foreign`
+    FOREIGN KEY (`updated_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+--------------------------------------------------------------------------------
+1h2) stock_productos  (stock físico y mínimo por sucursal)
+--------------------------------------------------------------------------------
+-- Equivalencias:
+--   sucursal     → sucursal_id
+--   producto     → producto_id
+--   stockFisico  → stock_fisico
+--   stockminimo  → stock_minimo
+--   activo       → is_active (1 = disponible en la sucursal, 0 = no disponible)
+CREATE TABLE `stock_productos` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `negocio_id` bigint UNSIGNED NOT NULL,
+  `sucursal_id` bigint UNSIGNED NOT NULL,
+  `producto_id` bigint UNSIGNED NOT NULL,
+  `stock_fisico` decimal(14,3) NOT NULL DEFAULT 0.000,
+  `stock_minimo` decimal(14,3) NOT NULL DEFAULT 0.000,
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_by` bigint UNSIGNED NOT NULL,
+  `updated_by` bigint UNSIGNED NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `stock_productos_sucursal_id_producto_id_unique` (`sucursal_id`, `producto_id`),
+  KEY `stock_productos_negocio_id_foreign` (`negocio_id`),
+  KEY `stock_productos_sucursal_id_foreign` (`sucursal_id`),
+  KEY `stock_productos_producto_id_foreign` (`producto_id`),
+  KEY `stock_productos_created_by_foreign` (`created_by`),
+  KEY `stock_productos_updated_by_foreign` (`updated_by`),
+  KEY `stock_productos_negocio_id_sucursal_id_index` (`negocio_id`, `sucursal_id`),
+  KEY `stock_productos_negocio_id_producto_id_index` (`negocio_id`, `producto_id`),
+  KEY `stock_productos_sucursal_id_is_active_index` (`sucursal_id`, `is_active`),
+  CONSTRAINT `stock_productos_negocio_id_foreign`
+    FOREIGN KEY (`negocio_id`) REFERENCES `negocios` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `stock_productos_sucursal_id_foreign`
+    FOREIGN KEY (`sucursal_id`) REFERENCES `sucursales` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `stock_productos_producto_id_foreign`
+    FOREIGN KEY (`producto_id`) REFERENCES `productos` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `stock_productos_created_by_foreign`
+    FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `stock_productos_updated_by_foreign`
     FOREIGN KEY (`updated_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -831,8 +877,9 @@ RESUMEN (orden de creación)
  1d. categoria_insumos   ← FK a negocios
  1e. insumos             ← FK a negocios + categoria_insumos + users
  1f. categoria_productos ← FK a negocios
- 1g. productos           ← FK a negocios + categoria_productos + users
- 1h. stock_insumos       ← FK a negocios + sucursales + insumos + users
+  1g. productos           ← FK a negocios + categoria_productos + users
+  1h. stock_insumos       ← FK a negocios + sucursales + insumos + users
+  1h2. stock_productos    ← FK a negocios + sucursales + productos + users
  1i. roles               ← FK a negocios + users
  1j. empleados           ← FK a negocios + sucursales + roles + users
  1k. staff               ← FK a negocios + sucursales + roles + empleados + users
@@ -1097,7 +1144,30 @@ ALTER TABLE `tb_turnos_cajas`
   ADD COLUMN `total_retiros_efectivo` decimal(12,2) NOT NULL DEFAULT 0.00 AFTER `total_gastos_operativos`;
 
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
-('2026_08_12_010000_create_tb_gastos_en_turno_table', 1);
+('2026_08_12_010000_create_tb_gastos_en_turno_table', 1),
+('2026_08_12_020000_create_stock_productos_table', 1);
+
+================================================================================
+ALTER stock_productos — is_active (disponible / no disponible por sucursal)
+================================================================================
+-- Si `stock_productos` ya existe sin este campo, ejecuta:
+ALTER TABLE `stock_productos`
+  ADD COLUMN `is_active` tinyint(1) NOT NULL DEFAULT 1 AFTER `stock_minimo`,
+  ADD KEY `stock_productos_sucursal_id_is_active_index` (`sucursal_id`, `is_active`);
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_08_12_021000_add_is_active_to_stock_productos_table', 1);
+
+================================================================================
+ALTER stock_insumos — is_active (disponible / no disponible por sucursal)
+================================================================================
+-- Si `stock_insumos` ya existe sin este campo, ejecuta:
+ALTER TABLE `stock_insumos`
+  ADD COLUMN `is_active` tinyint(1) NOT NULL DEFAULT 1 AFTER `stock_minimo`,
+  ADD KEY `stock_insumos_sucursal_id_is_active_index` (`sucursal_id`, `is_active`);
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_08_12_022000_add_is_active_to_stock_insumos_table', 1);
 
 ================================================================================
 FIN

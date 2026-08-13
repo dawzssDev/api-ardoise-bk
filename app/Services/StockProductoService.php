@@ -4,14 +4,14 @@ namespace App\Services;
 
 use App\Models\Negocio;
 use App\Models\Staff;
-use App\Models\StockInsumo;
+use App\Models\StockProducto;
 use App\Models\Sucursal;
 use App\Models\User;
 use App\Services\Concerns\ResolvesNegocioFromActor;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
-class StockInsumoService
+class StockProductoService
 {
     use ResolvesNegocioFromActor;
 
@@ -20,12 +20,12 @@ class StockInsumoService
         return $negocio->sucursales()->findOrFail($sucursalId);
     }
 
-    public function findForNegocio(Negocio $negocio, int $stockId): StockInsumo
+    public function findForNegocio(Negocio $negocio, int $stockId): StockProducto
     {
-        return $negocio->stockInsumos()
+        return $negocio->stockProductos()
             ->with([
                 'sucursal:id,negocio_id,type,name',
-                'insumo:id,negocio_id,name,status_insumo',
+                'producto:id,negocio_id,name,price,image,categoria_producto_id',
                 'createdBy:id,name,email',
                 'updatedBy:id,name,email',
             ])
@@ -33,7 +33,7 @@ class StockInsumoService
     }
 
     /**
-     * Lista insumos del negocio con stock de la sucursal (0 si aún no hay registro).
+     * Lista productos del negocio con stock de la sucursal (0 si aún no hay registro).
      */
     public function listForSucursal(
         Negocio $negocio,
@@ -41,35 +41,35 @@ class StockInsumoService
         int $perPage = 15,
         ?bool $soloActivos = null,
     ): LengthAwarePaginator {
-        $query = $negocio->insumos()
+        $query = $negocio->productos()
             ->with(['categoria:id,negocio_id,name'])
-            ->leftJoin('stock_insumos', function ($join) use ($sucursal) {
-                $join->on('insumos.id', '=', 'stock_insumos.insumo_id')
-                    ->where('stock_insumos.sucursal_id', '=', $sucursal->id);
+            ->leftJoin('stock_productos', function ($join) use ($sucursal) {
+                $join->on('productos.id', '=', 'stock_productos.producto_id')
+                    ->where('stock_productos.sucursal_id', '=', $sucursal->id);
             })
-            ->select('insumos.*')
+            ->select('productos.*')
             ->addSelect([
-                'stock_insumos.id as stock_id',
-                'stock_insumos.stock_fisico',
-                'stock_insumos.stock_minimo',
-                'stock_insumos.is_active as stock_is_active',
-                'stock_insumos.created_by as stock_created_by',
-                'stock_insumos.updated_by as stock_updated_by',
-                'stock_insumos.created_at as stock_created_at',
-                'stock_insumos.updated_at as stock_updated_at',
+                'stock_productos.id as stock_id',
+                'stock_productos.stock_fisico',
+                'stock_productos.stock_minimo',
+                'stock_productos.is_active as stock_is_active',
+                'stock_productos.created_by as stock_created_by',
+                'stock_productos.updated_by as stock_updated_by',
+                'stock_productos.created_at as stock_created_at',
+                'stock_productos.updated_at as stock_updated_at',
             ]);
 
         if ($soloActivos === true) {
             $query->where(function ($q) {
-                $q->where('stock_insumos.is_active', true)
-                    ->orWhereNull('stock_insumos.id');
+                $q->where('stock_productos.is_active', true)
+                    ->orWhereNull('stock_productos.id');
             });
         } elseif ($soloActivos === false) {
-            $query->where('stock_insumos.is_active', false);
+            $query->where('stock_productos.is_active', false);
         }
 
         return $query
-            ->orderBy('insumos.name')
+            ->orderBy('productos.name')
             ->paginate($perPage)
             ->through(function ($row) use ($negocio, $sucursal) {
                 $isActive = $row->stock_id !== null
@@ -80,12 +80,14 @@ class StockInsumoService
                     'id' => $row->stock_id,
                     'negocio_id' => $negocio->id,
                     'sucursal_id' => $sucursal->id,
-                    'insumo_id' => $row->id,
-                    'insumo' => [
+                    'producto_id' => $row->id,
+                    'producto' => [
                         'id' => $row->id,
                         'name' => $row->name,
-                        'status_insumo' => (bool) $row->status_insumo,
-                        'categoria_insumo_id' => $row->categoria_insumo_id,
+                        'price' => number_format((float) $row->price, 2, '.', ''),
+                        'image' => $row->image,
+                        'image_url' => $row->imageUrl(),
+                        'categoria_producto_id' => $row->categoria_producto_id,
                         'categoria' => $row->categoria ? [
                             'id' => $row->categoria->id,
                             'name' => $row->categoria->name,
@@ -103,17 +105,17 @@ class StockInsumoService
     }
 
     /**
-     * @param  array{sucursal_id: int, insumo_id: int, stock_fisico: float|int|string, stock_minimo: float|int|string, is_active?: bool}  $data
+     * @param  array{sucursal_id: int, producto_id: int, stock_fisico: float|int|string, stock_minimo: float|int|string, is_active?: bool}  $data
      */
-    public function upsert(Negocio $negocio, User|Staff $user, array $data): StockInsumo
+    public function upsert(Negocio $negocio, User|Staff $user, array $data): StockProducto
     {
         $sucursal = $this->findSucursalForNegocio($negocio, (int) $data['sucursal_id']);
-        $insumo = $negocio->insumos()->findOrFail((int) $data['insumo_id']);
+        $producto = $negocio->productos()->findOrFail((int) $data['producto_id']);
         $auditId = $this->auditUserId($user, $negocio);
 
-        $stock = StockInsumo::query()->firstOrNew([
+        $stock = StockProducto::query()->firstOrNew([
             'sucursal_id' => $sucursal->id,
-            'insumo_id' => $insumo->id,
+            'producto_id' => $producto->id,
         ]);
 
         if (! $stock->exists) {
@@ -132,15 +134,15 @@ class StockInsumoService
 
         return $stock->refresh()->load([
             'sucursal:id,negocio_id,type,name',
-            'insumo:id,negocio_id,name,status_insumo',
+            'producto:id,negocio_id,name,price,image,categoria_producto_id',
             'createdBy:id,name,email',
             'updatedBy:id,name,email',
         ]);
     }
 
     /**
-     * @param  array<int, array{insumo_id: int, stock_fisico: float|int|string, stock_minimo: float|int|string, is_active?: bool}>  $items
-     * @return list<StockInsumo>
+     * @param  array<int, array{producto_id: int, stock_fisico: float|int|string, stock_minimo: float|int|string, is_active?: bool}>  $items
+     * @return list<StockProducto>
      */
     public function upsertMany(Negocio $negocio, User|Staff $user, Sucursal $sucursal, array $items): array
     {
@@ -150,7 +152,7 @@ class StockInsumoService
             foreach ($items as $item) {
                 $payload = [
                     'sucursal_id' => $sucursal->id,
-                    'insumo_id' => $item['insumo_id'],
+                    'producto_id' => $item['producto_id'],
                     'stock_fisico' => $item['stock_fisico'],
                     'stock_minimo' => $item['stock_minimo'],
                 ];
@@ -169,7 +171,7 @@ class StockInsumoService
     /**
      * @param  array{stock_fisico?: float|int|string, stock_minimo?: float|int|string, is_active?: bool}  $data
      */
-    public function update(StockInsumo $stock, User|Staff $user, array $data): StockInsumo
+    public function update(StockProducto $stock, User|Staff $user, array $data): StockProducto
     {
         $stock->fill($data);
         $stock->updated_by = $this->auditUserId($user, $stock->negocio);
@@ -177,13 +179,13 @@ class StockInsumoService
 
         return $stock->refresh()->load([
             'sucursal:id,negocio_id,type,name',
-            'insumo:id,negocio_id,name,status_insumo',
+            'producto:id,negocio_id,name,price,image,categoria_producto_id',
             'createdBy:id,name,email',
             'updatedBy:id,name,email',
         ]);
     }
 
-    public function setActive(StockInsumo $stock, User|Staff $user, bool $isActive): StockInsumo
+    public function setActive(StockProducto $stock, User|Staff $user, bool $isActive): StockProducto
     {
         return $this->update($stock, $user, ['is_active' => $isActive]);
     }

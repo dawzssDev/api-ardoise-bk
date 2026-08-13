@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\StockInsumo;
 
+use App\Models\StockInsumo;
 use Illuminate\Foundation\Http\FormRequest;
 
 class UpdateStockInsumoRequest extends FormRequest
@@ -29,6 +30,21 @@ class UpdateStockInsumoRequest extends FormRequest
             }
         }
 
+        if (! $this->exists('is_active')) {
+            foreach (['activo', 'activa', 'disponible', 'status', 'active'] as $alias) {
+                if ($this->exists($alias)) {
+                    $merge['is_active'] = $this->input($alias);
+                    break;
+                }
+            }
+        }
+
+        $rawActivo = $merge['is_active'] ?? $this->input('is_active');
+        $normalizedActivo = StockInsumo::normalizeActivo($rawActivo);
+        if ($normalizedActivo !== null) {
+            $merge['is_active'] = $normalizedActivo;
+        }
+
         if ($merge !== []) {
             $this->merge($merge);
         }
@@ -42,6 +58,7 @@ class UpdateStockInsumoRequest extends FormRequest
         return [
             'stock_fisico' => ['sometimes', 'required', 'numeric', 'min:0'],
             'stock_minimo' => ['sometimes', 'required', 'numeric', 'min:0'],
+            'is_active' => ['sometimes', 'boolean'],
         ];
     }
 
@@ -57,6 +74,7 @@ class UpdateStockInsumoRequest extends FormRequest
             'stock_minimo.required' => 'El stock mínimo es obligatorio.',
             'stock_minimo.numeric' => 'El stock mínimo debe ser numérico.',
             'stock_minimo.min' => 'El stock mínimo no puede ser negativo.',
+            'is_active.boolean' => 'El campo activo debe ser verdadero o falso.',
         ];
     }
 }

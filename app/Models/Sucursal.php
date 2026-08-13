@@ -49,4 +49,9 @@ class Sucursal extends Model
     {
         return $this->hasMany(StockInsumo::class);
     }
+
+    public function stockProductos(): HasMany
+    {
+        return $this->hasMany(StockProducto::class);
+    }
 }

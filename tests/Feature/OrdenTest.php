@@ -359,6 +359,34 @@ class OrdenTest extends TestCase
             ->assertJsonPath('data.meta.total', 1);
     }
 
+    public function test_cannot_order_product_inactive_in_sucursal(): void
+    {
+        [$user, $negocio, $sucursal, $esquite] = $this->seedPosCatalog();
+
+        Sanctum::actingAs($user);
+
+        $this->putJson('/api/stock-productos', [
+            'sucursal_id' => $sucursal->id,
+            'producto_id' => $esquite->id,
+            'stock_fisico' => 8,
+            'stock_minimo' => 1,
+            'activo' => false,
+        ])->assertOk();
+
+        $this->abrirCaja($sucursal->id, 50);
+
+        $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Mesa 3',
+            'sucursal_id' => $sucursal->id,
+            'tipo_pago' => 'efectivo',
+            'detalles' => [
+                ['producto_id' => $esquite->id, 'cantidad' => 1],
+            ],
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'El producto Esquite chico no está disponible en esta sucursal.');
+    }
+
     private function abrirCaja(?int $sucursalId = null, float $fondo = 0): void
     {
         $payload = ['fondo_inicial' => $fondo];

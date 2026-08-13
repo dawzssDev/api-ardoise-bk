@@ -1,12 +1,11 @@
 <?php
 
-namespace App\Http\Requests\StockInsumo;
+namespace App\Http\Requests\StockProducto;
 
-use App\Models\StockInsumo;
+use App\Models\StockProducto;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
-class UpsertStockInsumoRequest extends FormRequest
+class UpdateStockProductoRequest extends FormRequest
 {
     public function authorize(): bool
     {
@@ -16,20 +15,6 @@ class UpsertStockInsumoRequest extends FormRequest
     protected function prepareForValidation(): void
     {
         $merge = [];
-
-        if (! $this->exists('sucursal_id')) {
-            $alias = $this->input('sucursalId', $this->input('id_sucursal'));
-            if ($alias !== null) {
-                $merge['sucursal_id'] = $alias;
-            }
-        }
-
-        if (! $this->exists('insumo_id')) {
-            $alias = $this->input('insumoId', $this->input('id_insumo'));
-            if ($alias !== null) {
-                $merge['insumo_id'] = $alias;
-            }
-        }
 
         if (! $this->exists('stock_fisico')) {
             $alias = $this->input('stockFisico', $this->input('stock_actual'));
@@ -55,7 +40,7 @@ class UpsertStockInsumoRequest extends FormRequest
         }
 
         $rawActivo = $merge['is_active'] ?? $this->input('is_active');
-        $normalizedActivo = StockInsumo::normalizeActivo($rawActivo);
+        $normalizedActivo = StockProducto::normalizeActivo($rawActivo);
         if ($normalizedActivo !== null) {
             $merge['is_active'] = $normalizedActivo;
         }
@@ -70,25 +55,9 @@ class UpsertStockInsumoRequest extends FormRequest
      */
     public function rules(): array
     {
-        $negocioId = $this->user()?->negocio?->id;
-
         return [
-            'sucursal_id' => [
-                'required',
-                'integer',
-                Rule::exists('sucursales', 'id')->where(
-                    fn ($q) => $q->where('negocio_id', $negocioId)
-                ),
-            ],
-            'insumo_id' => [
-                'required',
-                'integer',
-                Rule::exists('insumos', 'id')->where(
-                    fn ($q) => $q->where('negocio_id', $negocioId)
-                ),
-            ],
-            'stock_fisico' => ['required', 'numeric', 'min:0'],
-            'stock_minimo' => ['required', 'numeric', 'min:0'],
+            'stock_fisico' => ['sometimes', 'required', 'numeric', 'min:0'],
+            'stock_minimo' => ['sometimes', 'required', 'numeric', 'min:0'],
             'is_active' => ['sometimes', 'boolean'],
         ];
     }
@@ -99,10 +68,6 @@ class UpsertStockInsumoRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'sucursal_id.required' => 'La sucursal es obligatoria.',
-            'sucursal_id.exists' => 'La sucursal no existe en tu negocio.',
-            'insumo_id.required' => 'El insumo es obligatorio.',
-            'insumo_id.exists' => 'El insumo no existe en tu negocio.',
             'stock_fisico.required' => 'El stock físico es obligatorio.',
             'stock_fisico.numeric' => 'El stock físico debe ser numérico.',
             'stock_fisico.min' => 'El stock físico no puede ser negativo.',

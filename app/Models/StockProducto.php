@@ -5,14 +5,14 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class StockInsumo extends Model
+class StockProducto extends Model
 {
-    protected $table = 'stock_insumos';
+    protected $table = 'stock_productos';
 
     protected $fillable = [
         'negocio_id',
         'sucursal_id',
-        'insumo_id',
+        'producto_id',
         'stock_fisico',
         'stock_minimo',
         'is_active',
@@ -63,9 +63,9 @@ class StockInsumo extends Model
         return $this->belongsTo(Sucursal::class);
     }
 
-    public function insumo(): BelongsTo
+    public function producto(): BelongsTo
     {
-        return $this->belongsTo(Insumo::class);
+        return $this->belongsTo(Producto::class);
     }
 
     public function createdBy(): BelongsTo

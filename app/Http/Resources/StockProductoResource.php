@@ -5,21 +5,20 @@ namespace App\Http\Resources;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
-class StockInsumoResource extends JsonResource
+class StockProductoResource extends JsonResource
 {
     /**
      * @return array<string, mixed>
      */
     public function toArray(Request $request): array
     {
-        // Filas virtuales del listado por sucursal (array)
         if (is_array($this->resource)) {
             return [
                 'id' => $this->resource['id'],
                 'negocio_id' => $this->resource['negocio_id'],
                 'sucursal_id' => $this->resource['sucursal_id'],
-                'insumo_id' => $this->resource['insumo_id'],
-                'insumo' => $this->resource['insumo'],
+                'producto_id' => $this->resource['producto_id'],
+                'producto' => $this->resource['producto'],
                 'stock_fisico' => $this->resource['stock_fisico'],
                 'stock_minimo' => $this->resource['stock_minimo'],
                 'is_active' => $this->resource['is_active'],
@@ -41,11 +40,13 @@ class StockInsumoResource extends JsonResource
                 'type' => $this->sucursal->type,
                 'name' => $this->sucursal->name,
             ] : null),
-            'insumo_id' => $this->insumo_id,
-            'insumo' => $this->whenLoaded('insumo', fn () => $this->insumo ? [
-                'id' => $this->insumo->id,
-                'name' => $this->insumo->name,
-                'status_insumo' => $this->insumo->status_insumo,
+            'producto_id' => $this->producto_id,
+            'producto' => $this->whenLoaded('producto', fn () => $this->producto ? [
+                'id' => $this->producto->id,
+                'name' => $this->producto->name,
+                'price' => (string) $this->producto->price,
+                'image' => $this->producto->image,
+                'image_url' => $this->producto->imageUrl(),
             ] : null),
             'stock_fisico' => (string) $this->stock_fisico,
             'stock_minimo' => (string) $this->stock_minimo,

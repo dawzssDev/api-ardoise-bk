@@ -1,12 +1,12 @@
 <?php
 
-namespace App\Http\Requests\StockInsumo;
+namespace App\Http\Requests\StockProducto;
 
-use App\Models\StockInsumo;
+use App\Models\StockProducto;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
-class BulkUpsertStockInsumoRequest extends FormRequest
+class BulkUpsertStockProductoRequest extends FormRequest
 {
     public function authorize(): bool
     {
@@ -35,8 +35,8 @@ class BulkUpsertStockInsumoRequest extends FormRequest
 
                 $row = $item;
 
-                if (! array_key_exists('insumo_id', $row)) {
-                    $row['insumo_id'] = $row['insumoId'] ?? $row['id_insumo'] ?? null;
+                if (! array_key_exists('producto_id', $row)) {
+                    $row['producto_id'] = $row['productoId'] ?? $row['id_producto'] ?? null;
                 }
 
                 if (! array_key_exists('stock_fisico', $row)) {
@@ -51,7 +51,7 @@ class BulkUpsertStockInsumoRequest extends FormRequest
                     $row['is_active'] = $row['activo'] ?? $row['disponible'] ?? $row['status'] ?? $row['active'] ?? null;
                 }
 
-                $normalizedActivo = StockInsumo::normalizeActivo($row['is_active'] ?? null);
+                $normalizedActivo = StockProducto::normalizeActivo($row['is_active'] ?? null);
                 if ($normalizedActivo !== null) {
                     $row['is_active'] = $normalizedActivo;
                 } else {
@@ -85,10 +85,10 @@ class BulkUpsertStockInsumoRequest extends FormRequest
                 ),
             ],
             'items' => ['required', 'array', 'min:1'],
-            'items.*.insumo_id' => [
+            'items.*.producto_id' => [
                 'required',
                 'integer',
-                Rule::exists('insumos', 'id')->where(
+                Rule::exists('productos', 'id')->where(
                     fn ($q) => $q->where('negocio_id', $negocioId)
                 ),
             ],
@@ -107,8 +107,8 @@ class BulkUpsertStockInsumoRequest extends FormRequest
             'sucursal_id.required' => 'La sucursal es obligatoria.',
             'sucursal_id.exists' => 'La sucursal no existe en tu negocio.',
             'items.required' => 'Debes enviar al menos un stock.',
-            'items.*.insumo_id.required' => 'El insumo es obligatorio.',
-            'items.*.insumo_id.exists' => 'El insumo no existe en tu negocio.',
+            'items.*.producto_id.required' => 'El producto es obligatorio.',
+            'items.*.producto_id.exists' => 'El producto no existe en tu negocio.',
             'items.*.stock_fisico.required' => 'El stock físico es obligatorio.',
             'items.*.stock_fisico.min' => 'El stock físico no puede ser negativo.',
             'items.*.stock_minimo.required' => 'El stock mínimo es obligatorio.',

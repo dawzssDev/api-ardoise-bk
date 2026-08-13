@@ -3,25 +3,25 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\StockInsumo\BulkUpsertStockInsumoRequest;
-use App\Http\Requests\StockInsumo\ToggleStockInsumoActiveRequest;
-use App\Http\Requests\StockInsumo\UpdateStockInsumoRequest;
-use App\Http\Requests\StockInsumo\UpsertStockInsumoRequest;
-use App\Http\Resources\StockInsumoResource;
-use App\Models\StockInsumo;
-use App\Services\StockInsumoService;
+use App\Http\Requests\StockProducto\BulkUpsertStockProductoRequest;
+use App\Http\Requests\StockProducto\ToggleStockProductoActiveRequest;
+use App\Http\Requests\StockProducto\UpdateStockProductoRequest;
+use App\Http\Requests\StockProducto\UpsertStockProductoRequest;
+use App\Http\Resources\StockProductoResource;
+use App\Models\StockProducto;
+use App\Services\StockProductoService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
-class StockInsumoController extends Controller
+class StockProductoController extends Controller
 {
     public function __construct(
-        private readonly StockInsumoService $stocks,
+        private readonly StockProductoService $stocks,
     ) {}
 
     /**
-     * Listar stock de insumos por sucursal (incluye insumos sin registro aún).
+     * Listar stock de productos por sucursal (incluye productos sin registro aún).
      * Query: ?sucursal_id=1
      */
     public function index(Request $request): JsonResponse
@@ -44,7 +44,7 @@ class StockInsumoController extends Controller
         }
 
         $sucursal = $this->stocks->findSucursalForNegocio($negocio, $sucursalId);
-        $soloActivos = StockInsumo::normalizeActivo(
+        $soloActivos = StockProducto::normalizeActivo(
             $request->query('activo', $request->query('disponible', $request->query('is_active')))
         );
         $paginator = $this->stocks->listForSucursal($negocio, $sucursal, soloActivos: $soloActivos);
@@ -58,7 +58,7 @@ class StockInsumoController extends Controller
                     'type' => $sucursal->type,
                     'name' => $sucursal->name,
                 ],
-                'stocks' => StockInsumoResource::collection($paginator->items())->resolve(),
+                'stocks' => StockProductoResource::collection($paginator->items())->resolve(),
                 'meta' => [
                     'current_page' => $paginator->currentPage(),
                     'last_page' => $paginator->lastPage(),
@@ -71,9 +71,9 @@ class StockInsumoController extends Controller
     }
 
     /**
-     * Crear o actualizar stock de un insumo en una sucursal.
+     * Crear o actualizar stock de un producto en una sucursal.
      */
-    public function upsert(UpsertStockInsumoRequest $request): JsonResponse
+    public function upsert(UpsertStockProductoRequest $request): JsonResponse
     {
         try {
             $negocio = $this->stocks->negocioForUser($request->user());
@@ -87,7 +87,7 @@ class StockInsumoController extends Controller
             'success' => true,
             'message' => 'Stock guardado correctamente.',
             'data' => [
-                'stock' => (new StockInsumoResource($stock))->resolve(),
+                'stock' => (new StockProductoResource($stock))->resolve(),
             ],
             'errors' => null,
         ]);
@@ -96,7 +96,7 @@ class StockInsumoController extends Controller
     /**
      * Guardar varios stocks de una sucursal (útil para la pantalla de captura).
      */
-    public function bulkUpsert(BulkUpsertStockInsumoRequest $request): JsonResponse
+    public function bulkUpsert(BulkUpsertStockProductoRequest $request): JsonResponse
     {
         try {
             $negocio = $this->stocks->negocioForUser($request->user());
@@ -117,15 +117,12 @@ class StockInsumoController extends Controller
                     'type' => $sucursal->type,
                     'name' => $sucursal->name,
                 ],
-                'stocks' => StockInsumoResource::collection($stocks)->resolve(),
+                'stocks' => StockProductoResource::collection($stocks)->resolve(),
             ],
             'errors' => null,
         ]);
     }
 
-    /**
-     * Detalle de un registro de stock.
-     */
     public function show(Request $request, int $id): JsonResponse
     {
         try {
@@ -140,16 +137,13 @@ class StockInsumoController extends Controller
             'success' => true,
             'message' => 'ok',
             'data' => [
-                'stock' => (new StockInsumoResource($stock))->resolve(),
+                'stock' => (new StockProductoResource($stock))->resolve(),
             ],
             'errors' => null,
         ]);
     }
 
-    /**
-     * Actualizar stock físico / mínimo de un registro existente.
-     */
-    public function update(UpdateStockInsumoRequest $request, int $id): JsonResponse
+    public function update(UpdateStockProductoRequest $request, int $id): JsonResponse
     {
         try {
             $negocio = $this->stocks->negocioForUser($request->user());
@@ -164,16 +158,16 @@ class StockInsumoController extends Controller
             'success' => true,
             'message' => 'Stock actualizado correctamente.',
             'data' => [
-                'stock' => (new StockInsumoResource($stock))->resolve(),
+                'stock' => (new StockProductoResource($stock))->resolve(),
             ],
             'errors' => null,
         ]);
     }
 
     /**
-     * Activar o desactivar un insumo en la sucursal.
+     * Activar o desactivar un producto en la sucursal.
      */
-    public function setActive(ToggleStockInsumoActiveRequest $request, int $id): JsonResponse
+    public function setActive(ToggleStockProductoActiveRequest $request, int $id): JsonResponse
     {
         try {
             $negocio = $this->stocks->negocioForUser($request->user());
@@ -188,10 +182,10 @@ class StockInsumoController extends Controller
         return response()->json([
             'success' => true,
             'message' => $isActive
-                ? 'Insumo activado en la sucursal.'
-                : 'Insumo desactivado en la sucursal.',
+                ? 'Producto activado en la sucursal.'
+                : 'Producto desactivado en la sucursal.',
             'data' => [
-                'stock' => (new StockInsumoResource($stock))->resolve(),
+                'stock' => (new StockProductoResource($stock))->resolve(),
             ],
             'errors' => null,
         ]);

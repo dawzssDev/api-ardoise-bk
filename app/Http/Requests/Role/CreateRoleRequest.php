@@ -117,6 +117,7 @@ class CreateRoleRequest extends FormRequest
             'permissions.insumos' => ['required', 'boolean'],
             'permissions.stock_insumos' => ['required', 'boolean'],
             'permissions.products' => ['required', 'boolean'],
+            'permissions.stock_products' => ['sometimes', 'boolean'],
             'permissions.finance' => ['required', 'boolean'],
             'permissions.staff' => ['required', 'boolean'],
             'permissions.supply_requests' => ['required', 'boolean'],

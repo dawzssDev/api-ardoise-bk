@@ -118,6 +118,7 @@ class UpdateRoleRequest extends FormRequest
             'permissions.insumos' => ['required_with:permissions', 'boolean'],
             'permissions.stock_insumos' => ['required_with:permissions', 'boolean'],
             'permissions.products' => ['required_with:permissions', 'boolean'],
+            'permissions.stock_products' => ['sometimes', 'boolean'],
             'permissions.finance' => ['required_with:permissions', 'boolean'],
             'permissions.staff' => ['required_with:permissions', 'boolean'],
             'permissions.supply_requests' => ['required_with:permissions', 'boolean'],

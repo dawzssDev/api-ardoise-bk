@@ -45,6 +45,7 @@ class RoleTest extends TestCase
             ->assertJsonPath('data.role.permissions.enPreparacionPedido', true)
             ->assertJsonPath('data.role.permissions.pedidosListos', false)
             ->assertJsonPath('data.role.permissions.corteCaja', false)
+            ->assertJsonPath('data.role.permissions.stock_products', false)
             ->assertJsonPath('data.role.permissions.ventaDirecta', false)
             ->assertJsonPath('data.role.permissions.levantarOrden', false)
             ->assertJsonPath('data.role.status', true);
@@ -81,6 +82,7 @@ class RoleTest extends TestCase
         $permissions['enPreparacionPedido'] = true;
         $permissions['pedidosListos'] = false;
         $permissions['corteCaja'] = true;
+        $permissions['stock_products'] = true;
         $permissions['ventaDirecta'] = true;
         $permissions['levantarOrden'] = true;
 
@@ -94,6 +96,7 @@ class RoleTest extends TestCase
             ->assertJsonPath('data.role.permissions.enPreparacionPedido', true)
             ->assertJsonPath('data.role.permissions.pedidosListos', false)
             ->assertJsonPath('data.role.permissions.corteCaja', true)
+            ->assertJsonPath('data.role.permissions.stock_products', true)
             ->assertJsonPath('data.role.permissions.ventaDirecta', true)
             ->assertJsonPath('data.role.permissions.levantarOrden', true);
     }
@@ -127,6 +130,8 @@ class RoleTest extends TestCase
         $permissions['nuevo'] = true;
         $permissions['enPreparacion'] = true;
         $permissions['listo'] = false;
+        unset($permissions['stock_products']);
+        $permissions['STOCK_PRODUCTS'] = true;
 
         $response = $this->putJson("/api/roles/{$role->id}", [
             'permissions' => $permissions,
@@ -135,6 +140,7 @@ class RoleTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('data.role.permissions.nuevoPedido', true)
             ->assertJsonPath('data.role.permissions.enPreparacionPedido', true)
-            ->assertJsonPath('data.role.permissions.pedidosListos', false);
+            ->assertJsonPath('data.role.permissions.pedidosListos', false)
+            ->assertJsonPath('data.role.permissions.stock_products', true);
     }
 }
