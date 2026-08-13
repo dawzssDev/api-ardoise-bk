@@ -163,4 +163,82 @@ class EmpleadoTest extends TestCase
             'updated_by' => $user->id,
         ]);
     }
+
+    public function test_user_can_save_beneficiarios_as_json(): void
+    {
+        $user = User::factory()->create();
+        $negocio = $user->negocio()->create([
+            'name' => 'Negocio Test',
+            'phone' => '6670000000',
+            'needs_invoice' => false,
+        ]);
+
+        $sucursal = $negocio->sucursales()->create([
+            'type' => Sucursal::TYPE_SUCURSAL,
+            'name' => 'Centro',
+            'is_active' => true,
+        ]);
+
+        $role = $negocio->roles()->create([
+            'name' => 'Cajero',
+            'permissions' => Role::defaultPermissions(),
+            'status' => true,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/empleados', [
+            'nombre' => 'Carlos',
+            'apellido_paterno' => 'Díaz',
+            'numero_empleado' => 'EMP-BEN-1',
+            'sucursal_id' => $sucursal->id,
+            'role_id' => $role->id,
+            'beneficiarios' => [
+                [
+                    'Nombre completo Beneficiario' => 'Lucía Díaz',
+                    'Contacto beneficiario' => '6671112233',
+                    'Parentesco' => 'Hija',
+                    'porcentaje' => 60,
+                ],
+                [
+                    'nombre_completo' => 'Pedro Díaz',
+                    'contacto' => '6674445566',
+                    'parentesco' => 'Esposo',
+                    'porcentaje' => 40,
+                ],
+            ],
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.empleado.datos_beneficiarios.0.nombre_completo', 'Lucía Díaz')
+            ->assertJsonPath('data.empleado.datos_beneficiarios.0.contacto', '6671112233')
+            ->assertJsonPath('data.empleado.datos_beneficiarios.0.parentesco', 'Hija')
+            ->assertJsonPath('data.empleado.datos_beneficiarios.0.porcentaje', 60)
+            ->assertJsonPath('data.empleado.beneficiarios.1.nombre_completo', 'Pedro Díaz')
+            ->assertJsonPath('data.empleado.beneficiarios.1.porcentaje', 40);
+
+        $empleadoId = $this->postJson('/api/empleados', [
+            'nombre' => 'Marta',
+            'apellido_paterno' => 'Luna',
+            'numero_empleado' => 'EMP-BEN-2',
+            'sucursal_id' => $sucursal->id,
+            'role_id' => $role->id,
+        ])->assertCreated()->json('data.empleado.id');
+
+        $this->putJson("/api/empleados/{$empleadoId}", [
+            'datos_beneficiarios' => [
+                [
+                    'nombreCompleto' => 'Sofía Luna',
+                    'telefono' => '6670001111',
+                    'parentesco' => 'Madre',
+                    'porcentaje' => 100,
+                ],
+            ],
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.empleado.datos_beneficiarios.0.nombre_completo', 'Sofía Luna')
+            ->assertJsonPath('data.empleado.datos_beneficiarios.0.contacto', '6670001111')
+            ->assertJsonPath('data.empleado.datos_beneficiarios.0.porcentaje', 100);
+    }
 }

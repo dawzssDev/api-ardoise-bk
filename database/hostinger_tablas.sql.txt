@@ -587,6 +587,7 @@ CREATE TABLE `empleados` (
   `emergency_contact_name` varchar(255) NULL DEFAULT NULL,
   `emergency_contact_relationship` varchar(80) NULL DEFAULT NULL,
   `emergency_contact_phone` varchar(30) NULL DEFAULT NULL,
+  `datos_beneficiarios` json NULL DEFAULT NULL,
   `created_by` bigint UNSIGNED NOT NULL,
   `updated_by` bigint UNSIGNED NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -1168,6 +1169,18 @@ ALTER TABLE `stock_insumos`
 
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_08_12_022000_add_is_active_to_stock_insumos_table', 1);
+
+================================================================================
+ALTER empleados — datos_beneficiarios (JSON)
+================================================================================
+-- Lista de beneficiarios:
+--   [{"nombre_completo":"...","contacto":"...","parentesco":"...","porcentaje":50}]
+-- Si `empleados` ya existe sin este campo, ejecuta:
+ALTER TABLE `empleados`
+  ADD COLUMN `datos_beneficiarios` json NULL DEFAULT NULL AFTER `emergency_contact_phone`;
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_08_12_023000_add_datos_beneficiarios_to_empleados_table', 1);
 
 ================================================================================
 FIN

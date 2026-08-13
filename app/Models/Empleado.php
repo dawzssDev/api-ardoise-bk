@@ -43,6 +43,7 @@ class Empleado extends Model
         'emergency_contact_name',
         'emergency_contact_relationship',
         'emergency_contact_phone',
+        'datos_beneficiarios',
         'created_by',
         'updated_by',
     ];
@@ -53,7 +54,71 @@ class Empleado extends Model
             'birth_date' => 'date',
             'hire_date' => 'date',
             'salary' => 'decimal:2',
+            'datos_beneficiarios' => 'array',
         ];
+    }
+
+    /**
+     * Normaliza el JSON de beneficiarios a una lista de objetos canónicos.
+     *
+     * @return list<array{nombre_completo: string, contacto: string, parentesco: string, porcentaje: float|int|string|null}>|mixed
+     */
+    public static function normalizeBeneficiarios(mixed $value): mixed
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                return $value;
+            }
+            $value = $decoded;
+        }
+
+        if (! is_array($value)) {
+            return $value;
+        }
+
+        $items = array_is_list($value) ? $value : array_values($value);
+        $normalized = [];
+
+        foreach ($items as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+
+            $normalized[] = [
+                'nombre_completo' => trim((string) (
+                    $item['nombre_completo']
+                    ?? $item['nombreCompleto']
+                    ?? $item['nombre']
+                    ?? $item['Nombre completo Beneficiario']
+                    ?? $item['nombre_completo_beneficiario']
+                    ?? ''
+                )),
+                'contacto' => trim((string) (
+                    $item['contacto']
+                    ?? $item['telefono']
+                    ?? $item['Contacto beneficiario']
+                    ?? $item['contacto_beneficiario']
+                    ?? ''
+                )),
+                'parentesco' => trim((string) (
+                    $item['parentesco']
+                    ?? $item['Parentesco']
+                    ?? $item['relacion']
+                    ?? ''
+                )),
+                'porcentaje' => $item['porcentaje']
+                    ?? $item['Porcentaje']
+                    ?? $item['percent']
+                    ?? null,
+            ];
+        }
+
+        return $normalized;
     }
 
     public function negocio(): BelongsTo

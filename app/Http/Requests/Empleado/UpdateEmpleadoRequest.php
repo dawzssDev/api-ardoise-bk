@@ -37,6 +37,7 @@ class UpdateEmpleadoRequest extends FormRequest
             'emergency_contact_name' => ['contacto_emergencia_nombre', 'emergencia_nombre'],
             'emergency_contact_relationship' => ['contacto_emergencia_parentesco', 'parentesco'],
             'emergency_contact_phone' => ['contacto_emergencia_telefono', 'emergencia_telefono'],
+            'datos_beneficiarios' => ['beneficiarios', 'datosBeneficiarios', 'beneficiaries'],
         ];
 
         $merge = [];
@@ -63,6 +64,11 @@ class UpdateEmpleadoRequest extends FormRequest
             if (is_string($value) && $value !== '') {
                 $merge[$field] = strtolower(trim($value));
             }
+        }
+
+        $rawBeneficiarios = $merge['datos_beneficiarios'] ?? $this->input('datos_beneficiarios');
+        if ($rawBeneficiarios !== null) {
+            $merge['datos_beneficiarios'] = Empleado::normalizeBeneficiarios($rawBeneficiarios);
         }
 
         if ($merge !== []) {
@@ -132,6 +138,11 @@ class UpdateEmpleadoRequest extends FormRequest
             'emergency_contact_name' => ['sometimes', 'nullable', 'string', 'max:150'],
             'emergency_contact_relationship' => ['sometimes', 'nullable', 'string', 'max:80'],
             'emergency_contact_phone' => ['sometimes', 'nullable', 'string', 'max:30'],
+            'datos_beneficiarios' => ['sometimes', 'nullable', 'array'],
+            'datos_beneficiarios.*.nombre_completo' => ['required', 'string', 'max:150'],
+            'datos_beneficiarios.*.contacto' => ['required', 'string', 'max:50'],
+            'datos_beneficiarios.*.parentesco' => ['required', 'string', 'max:80'],
+            'datos_beneficiarios.*.porcentaje' => ['required', 'numeric', 'min:0', 'max:100'],
         ];
     }
 
@@ -153,6 +164,13 @@ class UpdateEmpleadoRequest extends FormRequest
             'salary_frequency.in' => 'La frecuencia del sueldo debe ser diario, semanal o quincenal.',
             'image.image' => 'El archivo debe ser una imagen.',
             'image.max' => 'La imagen no puede superar 2 MB.',
+            'datos_beneficiarios.array' => 'Los beneficiarios deben enviarse como lista.',
+            'datos_beneficiarios.*.nombre_completo.required' => 'El nombre completo del beneficiario es obligatorio.',
+            'datos_beneficiarios.*.contacto.required' => 'El contacto del beneficiario es obligatorio.',
+            'datos_beneficiarios.*.parentesco.required' => 'El parentesco del beneficiario es obligatorio.',
+            'datos_beneficiarios.*.porcentaje.required' => 'El porcentaje del beneficiario es obligatorio.',
+            'datos_beneficiarios.*.porcentaje.min' => 'El porcentaje no puede ser negativo.',
+            'datos_beneficiarios.*.porcentaje.max' => 'El porcentaje no puede ser mayor a 100.',
         ];
     }
 }

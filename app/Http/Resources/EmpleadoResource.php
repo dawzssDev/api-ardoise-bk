@@ -52,6 +52,8 @@ class EmpleadoResource extends JsonResource
             'emergency_contact_name' => $this->emergency_contact_name,
             'emergency_contact_relationship' => $this->emergency_contact_relationship,
             'emergency_contact_phone' => $this->emergency_contact_phone,
+            'datos_beneficiarios' => $this->datos_beneficiarios ?? [],
+            'beneficiarios' => $this->datos_beneficiarios ?? [],
             'created_by' => $this->whenLoaded('createdBy', fn () => [
                 'id' => $this->createdBy?->id,
                 'name' => $this->createdBy?->name,

@@ -57,6 +57,7 @@ class EmpleadoService
             'emergency_contact_name' => $data['emergency_contact_name'] ?? null,
             'emergency_contact_relationship' => $data['emergency_contact_relationship'] ?? null,
             'emergency_contact_phone' => $data['emergency_contact_phone'] ?? null,
+            'datos_beneficiarios' => $data['datos_beneficiarios'] ?? null,
             'created_by' => $auditId,
             'updated_by' => $auditId,
         ]);
