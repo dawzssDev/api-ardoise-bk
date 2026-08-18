@@ -34,6 +34,15 @@ class CreateStaffRequest extends FormRequest
             }
         }
 
+        if (! $this->exists('password_authorization')) {
+            foreach (['pin', 'passwordAuthorization', 'password_autorizacion', 'pin_autorizacion', 'pinAutorizacion'] as $alias) {
+                if ($this->exists($alias)) {
+                    $merge['password_authorization'] = $this->input($alias);
+                    break;
+                }
+            }
+        }
+
         if (! $this->exists('sucursal_id')) {
             foreach (['sucursalId', 'id_sucursal'] as $alias) {
                 if ($this->exists($alias)) {
@@ -69,6 +78,11 @@ class CreateStaffRequest extends FormRequest
             }
         }
 
+        $pin = $merge['password_authorization'] ?? $this->input('password_authorization');
+        if ($pin === '') {
+            $merge['password_authorization'] = null;
+        }
+
         if ($merge !== []) {
             $this->merge($merge);
         }
@@ -91,6 +105,7 @@ class CreateStaffRequest extends FormRequest
                 ),
             ],
             'password' => ['required', 'string', 'min:6', 'max:100'],
+            'password_authorization' => ['sometimes', 'nullable', 'digits:6'],
             'sucursal_id' => [
                 'required',
                 'integer',
@@ -127,6 +142,7 @@ class CreateStaffRequest extends FormRequest
             'username.unique' => 'Ya existe un staff con ese usuario en tu negocio.',
             'password.required' => 'La contraseña es obligatoria.',
             'password.min' => 'La contraseña debe tener al menos :min caracteres.',
+            'password_authorization.digits' => 'La contraseña de autorización debe tener exactamente 6 dígitos.',
             'sucursal_id.required' => 'La sucursal es obligatoria.',
             'sucursal_id.exists' => 'La sucursal no existe en tu negocio.',
             'role_id.required' => 'El rol es obligatorio.',

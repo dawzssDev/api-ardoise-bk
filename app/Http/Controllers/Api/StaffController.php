@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Staff\CreateStaffRequest;
 use App\Http\Requests\Staff\ToggleStaffStatusRequest;
 use App\Http\Requests\Staff\UpdateStaffRequest;
+use App\Http\Requests\Staff\VerifyPasswordAuthorizationRequest;
 use App\Http\Resources\StaffResource;
 use App\Services\StaffService;
 use Illuminate\Http\JsonResponse;
@@ -131,6 +132,51 @@ class StaffController extends Controller
                 : 'Usuario staff desactivado correctamente.',
             'data' => [
                 'staff' => (new StaffResource($staff))->resolve(),
+            ],
+            'errors' => null,
+        ]);
+    }
+
+    public function passwordAuthorization(Request $request): JsonResponse
+    {
+        try {
+            $sucursalId = $request->filled('sucursal_id')
+                ? (int) $request->integer('sucursal_id')
+                : null;
+            $payload = $this->staff->passwordAuthorizationForActor(
+                $request->user(),
+                $sucursalId,
+            );
+        } catch (HttpException $e) {
+            return $this->errorResponse($e);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'ok',
+            'data' => $payload,
+            'errors' => null,
+        ]);
+    }
+
+    public function verifyPasswordAuthorization(VerifyPasswordAuthorizationRequest $request): JsonResponse
+    {
+        try {
+            $staff = $this->staff->verifyPasswordAuthorization(
+                $request->user(),
+                $request->validated('password_authorization'),
+                $request->validated('staff_ids'),
+            );
+        } catch (HttpException $e) {
+            return $this->errorResponse($e);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Autorizacion valida.',
+            'data' => [
+                'authorized' => true,
+                'staff_id' => $staff->id,
             ],
             'errors' => null,
         ]);

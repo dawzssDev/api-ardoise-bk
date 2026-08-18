@@ -7,6 +7,7 @@ use App\Models\Staff;
 use App\Models\User;
 use App\Services\Concerns\ResolvesNegocioFromActor;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\Hash;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class StaffService
@@ -17,6 +18,7 @@ class StaffService
      * @param  array{
      *     username: string,
      *     password: string,
+     *     password_authorization?: string|null,
      *     sucursal_id: int,
      *     role_id: int,
      *     empleado_id: int,
@@ -30,6 +32,7 @@ class StaffService
         return $negocio->staff()->create([
             'username' => $data['username'],
             'password' => $data['password'],
+            'password_authorization' => $this->plainPinOrNull($data['password_authorization'] ?? null),
             'sucursal_id' => $data['sucursal_id'],
             'role_id' => $data['role_id'],
             'empleado_id' => $data['empleado_id'],
@@ -87,6 +90,10 @@ class StaffService
             unset($data['password']);
         }
 
+        if (array_key_exists('password_authorization', $data)) {
+            $data['password_authorization'] = $this->plainPinOrNull($data['password_authorization']);
+        }
+
         $staff->fill($data);
         $staff->updated_by = $user->id;
         $staff->save();
@@ -119,6 +126,92 @@ class StaffService
     {
         $staff->tokens()->delete();
         $staff->delete();
+    }
+
+    /**
+     * Indica si la sucursal del actor tiene staff con PIN de autorización.
+     *
+     * Staff: siempre se usa su sucursal de sesión.
+     * Maestro: debe indicar sucursal_id.
+     *
+     * @return array{has_password_authorization: 0|1, staff_ids: list<int>}
+     */
+    public function passwordAuthorizationForActor(User|Staff $actor, ?int $sucursalId = null): array
+    {
+        $negocio = $this->negocioForUser($actor);
+
+        if ($actor instanceof Staff) {
+            $sucursalId = (int) $actor->sucursal_id;
+        }
+
+        if (! $sucursalId) {
+            throw new HttpException(422, 'Se requiere una sucursal para consultar la autorización.');
+        }
+
+        $sucursalOk = $negocio->sucursales()->whereKey($sucursalId)->exists();
+        if (! $sucursalOk) {
+            throw new HttpException(422, 'La sucursal no pertenece a tu negocio.');
+        }
+
+        $staffIds = $negocio->staff()
+            ->where('sucursal_id', $sucursalId)
+            ->whereNotNull('password_authorization')
+            ->where('status', true)
+            ->orderBy('id')
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->values()
+            ->all();
+
+        if ($staffIds === []) {
+            return [
+                'has_password_authorization' => 0,
+                'staff_ids' => [],
+            ];
+        }
+
+        return [
+            'has_password_authorization' => 1,
+            'staff_ids' => $staffIds,
+        ];
+    }
+
+    /**
+     * Valida que el PIN coincida con alguno de los staff_ids de la sucursal/negocio de sesión.
+     *
+     * @param  list<int>  $staffIds
+     */
+    public function verifyPasswordAuthorization(User|Staff $actor, int|string $pin, array $staffIds): Staff
+    {
+        $negocio = $this->negocioForUser($actor);
+
+        $query = $negocio->staff()
+            ->whereIn('id', $staffIds)
+            ->whereNotNull('password_authorization')
+            ->where('status', true);
+
+        if ($actor instanceof Staff) {
+            $query->where('sucursal_id', (int) $actor->sucursal_id);
+        }
+
+        $plain = (string) $pin;
+
+        foreach ($query->orderBy('id')->get(['id', 'password_authorization']) as $staff) {
+            if (is_string($staff->password_authorization) && Hash::check($plain, $staff->password_authorization)) {
+                return $staff;
+            }
+        }
+
+        throw new HttpException(401, 'La contraseña de autorización no es válida.');
+    }
+
+    private function plainPinOrNull(mixed $pin): ?string
+    {
+        if ($pin === null || $pin === '') {
+            return null;
+        }
+
+        return (string) $pin;
     }
 
     /**

@@ -16,6 +16,7 @@ class StaffResource extends JsonResource
             'id' => $this->id,
             'negocio_id' => $this->negocio_id,
             'username' => $this->username,
+            'has_password_authorization' => $this->password_authorization !== null,
             'sucursal_id' => $this->sucursal_id,
             'sucursal' => $this->whenLoaded('sucursal', fn () => $this->sucursal ? [
                 'id' => $this->sucursal->id,

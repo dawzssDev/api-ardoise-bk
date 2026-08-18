@@ -34,6 +34,15 @@ class UpdateStaffRequest extends FormRequest
             }
         }
 
+        if (! $this->exists('password_authorization')) {
+            foreach (['pin', 'passwordAuthorization', 'password_autorizacion', 'pin_autorizacion', 'pinAutorizacion'] as $alias) {
+                if ($this->exists($alias)) {
+                    $merge['password_authorization'] = $this->input($alias);
+                    break;
+                }
+            }
+        }
+
         if (! $this->exists('sucursal_id')) {
             foreach (['sucursalId', 'id_sucursal'] as $alias) {
                 if ($this->exists($alias)) {
@@ -74,6 +83,11 @@ class UpdateStaffRequest extends FormRequest
             $this->request->remove('password');
         }
 
+        $pin = $merge['password_authorization'] ?? $this->input('password_authorization');
+        if ($pin === '') {
+            $merge['password_authorization'] = null;
+        }
+
         if ($merge !== []) {
             $this->merge(array_filter(
                 $merge,
@@ -102,6 +116,7 @@ class UpdateStaffRequest extends FormRequest
                     ->ignore($staffId),
             ],
             'password' => ['sometimes', 'nullable', 'string', 'min:6', 'max:100'],
+            'password_authorization' => ['sometimes', 'nullable', 'digits:6'],
             'sucursal_id' => [
                 'sometimes',
                 'required',
@@ -140,6 +155,7 @@ class UpdateStaffRequest extends FormRequest
             'username.required' => 'El usuario es obligatorio.',
             'username.unique' => 'Ya existe un staff con ese usuario en tu negocio.',
             'password.min' => 'La contraseña debe tener al menos :min caracteres.',
+            'password_authorization.digits' => 'La contraseña de autorización debe tener exactamente 6 dígitos.',
             'sucursal_id.exists' => 'La sucursal no existe en tu negocio.',
             'role_id.exists' => 'El rol no existe en tu negocio.',
             'empleado_id.exists' => 'El empleado no existe en tu negocio.',

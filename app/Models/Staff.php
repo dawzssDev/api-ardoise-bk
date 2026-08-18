@@ -17,6 +17,7 @@ class Staff extends Authenticatable
         'negocio_id',
         'username',
         'password',
+        'password_authorization',
         'sucursal_id',
         'role_id',
         'empleado_id',
@@ -27,6 +28,7 @@ class Staff extends Authenticatable
 
     protected $hidden = [
         'password',
+        'password_authorization',
         'remember_token',
     ];
 
@@ -34,6 +36,7 @@ class Staff extends Authenticatable
     {
         return [
             'password' => 'hashed',
+            'password_authorization' => 'hashed',
             'status' => 'boolean',
         ];
     }

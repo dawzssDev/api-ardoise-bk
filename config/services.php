@@ -41,7 +41,7 @@ return [
         'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
         'currency' => env('STRIPE_CURRENCY', 'mxn'),
         // Días de prueba al crear suscripción (0 = sin trial). Ej: 14, 7, 3.
-        'trial_days' => (int) env('STRIPE_TRIAL_DAYS', 14),
+        'trial_days' => (int) env('STRIPE_TRIAL_DAYS', 7),
         // Price IDs de Stripe (Products → Prices)
         'price_prueba' => env('STRIPE_PRICE_PRUEBA'),
         'price_mensual' => env('STRIPE_PRICE_MENSUAL'),

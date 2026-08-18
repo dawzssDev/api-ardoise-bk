@@ -162,6 +162,10 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::put('/empleados/{id}/status', [EmpleadoController::class, 'setStatus'])->whereNumber('id');
     Route::delete('/empleados/{id}', [EmpleadoController::class, 'destroy'])->whereNumber('id');
 
+    // PIN de autorización en la sucursal de sesión (maestro y staff)
+    Route::get('/staff/password-authorization', [StaffController::class, 'passwordAuthorization']);
+    Route::post('/staff/password-authorization', [StaffController::class, 'verifyPasswordAuthorization']);
+
     // Usuarios staff: administración solo maestro
     Route::middleware('master')->group(function () {
         Route::get('/staff', [StaffController::class, 'index']);
