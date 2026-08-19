@@ -130,6 +130,7 @@ class UpdateRoleRequest extends FormRequest
             'permissions.pedidosListos' => ['required_with:permissions', 'boolean'],
             'permissions.corteCaja' => ['required_with:permissions', 'boolean'],
             'permissions.corteCajaCajera' => ['sometimes', 'boolean'],
+            'permissions.corteCajaGerenteAdmo' => ['sometimes', 'boolean'],
             'permissions.cuentas_por_cobrar' => ['sometimes', 'boolean'],
             'permissions.ventaDirecta' => ['sometimes', 'boolean'],
             'permissions.levantarOrden' => ['sometimes', 'boolean'],

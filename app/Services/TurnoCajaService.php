@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\DepositoEnTurno;
 use App\Models\GastoEnTurno;
 use App\Models\Negocio;
 use App\Models\Orden;
@@ -19,7 +20,7 @@ class TurnoCajaService
     use ResolvesNegocioFromActor;
 
     /**
-     * @param  array{sucursal_id?: int|null, fondo_inicial?: float|int|string|null}  $data
+     * @param  array{sucursal_id?: int|null, fondo_inicial?: float|int|string|null, status_gerencia?: mixed}  $data
      */
     public function abrir(Negocio $negocio, User|Staff $actor, array $data): TurnoCaja
     {
@@ -46,8 +47,10 @@ class TurnoCajaService
             'total_pagos_proveedores' => 0,
             'total_gastos_operativos' => 0,
             'total_retiros_efectivo' => 0,
+            'total_depositos_efectivo' => 0,
             'status' => TurnoCaja::STATUS_ABIERTO,
             'status_administrador' => TurnoCaja::STATUS_ABIERTO,
+            'status_gerencia' => $this->statusGerenciaFromData($data, TurnoCaja::STATUS_ABIERTO),
             'fecha_apertura' => now(),
         ])->load($this->turnoRelations());
     }
@@ -58,7 +61,18 @@ class TurnoCajaService
         float $efectivoReal,
         ?string $observaciones = null,
         ?float $efectivoRealCajera = null,
+        mixed $statusGerencia = null,
+        bool $hasStatusGerencia = false,
     ): TurnoCaja {
+        if (! $turno->isAdminOpen()) {
+            $this->assertCanCerrarGerencia($actor, $turno);
+
+            return $this->cerrarPorGerencia(
+                $turno,
+                $hasStatusGerencia ? $statusGerencia : TurnoCaja::STATUS_CERRADO,
+            );
+        }
+
         $this->assertCanCorteCaja($actor);
         $this->assertCanManageTurno($turno, $actor);
 
@@ -71,10 +85,24 @@ class TurnoCajaService
         }
 
         if ($this->isCajeraClose($actor)) {
-            return $this->cerrarPorCajera($turno, $efectivoReal, $observaciones, $efectivoRealCajera);
+            return $this->cerrarPorCajera(
+                $turno,
+                $efectivoReal,
+                $observaciones,
+                $efectivoRealCajera,
+                $statusGerencia,
+                $hasStatusGerencia,
+            );
         }
 
-        return $this->cerrarPorAdministrador($turno, $efectivoReal, $observaciones, $efectivoRealCajera);
+        return $this->cerrarPorAdministrador(
+            $turno,
+            $efectivoReal,
+            $observaciones,
+            $efectivoRealCajera,
+            $statusGerencia,
+            $hasStatusGerencia,
+        );
     }
 
     public function listForNegocio(
@@ -281,6 +309,57 @@ class TurnoCajaService
     }
 
     /**
+     * @param  array{descripcion: string, monto: float|int|string}  $data
+     */
+    public function registrarDeposito(TurnoCaja $turno, User|Staff $actor, array $data): DepositoEnTurno
+    {
+        $this->assertCanRegisterDeposito($turno, $actor);
+
+        if (! $turno->isOpen()) {
+            throw new HttpException(422, 'No puedes registrar depósitos en un turno cerrado.');
+        }
+
+        $monto = round((float) $data['monto'], 2);
+        if ($monto <= 0) {
+            throw new HttpException(422, 'El monto debe ser mayor a cero.');
+        }
+
+        return DB::transaction(function () use ($turno, $actor, $data, $monto) {
+            $deposito = DepositoEnTurno::query()->create([
+                'turno_caja_id' => $turno->id,
+                'id_user' => $actor instanceof Staff ? $actor->id : $turno->id_user,
+                'user_id' => $actor instanceof User ? $actor->id : $this->auditUserId($actor, $turno->negocio),
+                'negocio_id' => $turno->negocio_id,
+                'sucursal_id' => $turno->sucursal_id,
+                'descripcion' => trim((string) $data['descripcion']),
+                'monto' => $monto,
+                'fecha_registro' => now(),
+            ]);
+
+            $this->syncDepositoTotals($turno);
+
+            return $deposito->refresh();
+        });
+    }
+
+    public function listDepositos(TurnoCaja $turno, int $perPage = 50): LengthAwarePaginator
+    {
+        return $turno->depositos()
+            ->with([
+                'cajero:id,username,sucursal_id',
+                'user:id,name,email',
+                'sucursal:id,negocio_id,type,name',
+            ])
+            ->latest('id')
+            ->paginate($perPage);
+    }
+
+    public function sumDepositos(TurnoCaja $turno): float
+    {
+        return round((float) $turno->depositos()->sum('monto'), 2);
+    }
+
+    /**
      * @return array{efectivo: float, tarjeta: float, transferencia: float, total: float}
      */
     public function sumVentasByPayment(TurnoCaja $turno): array
@@ -311,6 +390,7 @@ class TurnoCajaService
     {
         $totales = $this->sumVentasByPayment($turno);
         $gastos = $this->sumGastosByTipo($turno);
+        $depositos = $this->sumDepositos($turno);
 
         return [
             'total_ventas_efectivo' => $totales['efectivo'],
@@ -320,10 +400,12 @@ class TurnoCajaService
             'total_pagos_proveedores' => $gastos['pago_proveedor'],
             'total_gastos_operativos' => $gastos['gasto_operativo'],
             'total_retiros_efectivo' => $gastos['retiro_efectivo'],
+            'total_depositos_efectivo' => $depositos,
             'efectivo_esperado' => $totales['efectivo'],
             'fondo_inicial' => (float) $turno->fondo_inicial,
             'status' => $turno->status,
             'status_administrador' => $turno->status_administrador,
+            'status_gerencia' => $turno->status_gerencia,
         ];
     }
 
@@ -335,6 +417,8 @@ class TurnoCajaService
         float $efectivoReal,
         ?string $observaciones,
         ?float $efectivoRealCajera,
+        mixed $statusGerencia = null,
+        bool $hasStatusGerencia = false,
     ): TurnoCaja {
         if (! $turno->isOpen()) {
             throw new HttpException(422, 'Este turno de caja ya está cerrado por la cajera.');
@@ -342,11 +426,12 @@ class TurnoCajaService
 
         $efectivoRealCajera ??= $efectivoReal;
 
-        return DB::transaction(function () use ($turno, $observaciones, $efectivoRealCajera) {
+        return DB::transaction(function () use ($turno, $observaciones, $efectivoRealCajera, $statusGerencia, $hasStatusGerencia) {
             $totales = $this->sumVentasByPayment($turno);
             $gastos = $this->sumGastosByTipo($turno);
+            $depositos = $this->sumDepositos($turno);
 
-            $turno->fill([
+            $payload = [
                 'total_ventas_efectivo' => $totales['efectivo'],
                 'total_ventas_tarjeta' => $totales['tarjeta'],
                 'total_ventas_transferencia' => $totales['transferencia'],
@@ -354,6 +439,7 @@ class TurnoCajaService
                 'total_pagos_proveedores' => $gastos['pago_proveedor'],
                 'total_gastos_operativos' => $gastos['gasto_operativo'],
                 'total_retiros_efectivo' => $gastos['retiro_efectivo'],
+                'total_depositos_efectivo' => $depositos,
                 'efectivo_esperado' => $totales['efectivo'],
                 'efectivo_real_cajera' => round($efectivoRealCajera, 2),
                 'fecha_cierre_cajera' => now(),
@@ -361,7 +447,16 @@ class TurnoCajaService
                 // El administrador aún debe cerrar el corte.
                 'status_administrador' => TurnoCaja::STATUS_ABIERTO,
                 'observaciones_cierre' => $observaciones,
-            ]);
+            ];
+
+            if ($hasStatusGerencia) {
+                $payload['status_gerencia'] = $this->statusGerenciaFromData(
+                    ['status_gerencia' => $statusGerencia],
+                    (string) $turno->status_gerencia,
+                );
+            }
+
+            $turno->fill($payload);
             $turno->save();
 
             return $turno->refresh()->load($this->turnoRelations());
@@ -376,14 +471,17 @@ class TurnoCajaService
         float $efectivoReal,
         ?string $observaciones,
         ?float $efectivoRealCajera,
+        mixed $statusGerencia = null,
+        bool $hasStatusGerencia = false,
     ): TurnoCaja {
         if (! $turno->isAdminOpen()) {
             throw new HttpException(422, 'Este corte de caja ya fue cerrado por el administrador.');
         }
 
-        return DB::transaction(function () use ($turno, $efectivoReal, $observaciones, $efectivoRealCajera) {
+        return DB::transaction(function () use ($turno, $efectivoReal, $observaciones, $efectivoRealCajera, $statusGerencia, $hasStatusGerencia) {
             $totales = $this->sumVentasByPayment($turno);
             $gastos = $this->sumGastosByTipo($turno);
+            $depositos = $this->sumDepositos($turno);
 
             $efectivoEsperado = $totales['efectivo'];
             $pagosProveedores = $gastos['pago_proveedor'];
@@ -391,7 +489,7 @@ class TurnoCajaService
             $retirosEfectivo = $gastos['retiro_efectivo'];
 
             $diferencia = round(
-                $efectivoEsperado - $efectivoReal - $pagosProveedores - $gastosOperativos - $retirosEfectivo,
+                $efectivoEsperado + $depositos - $efectivoReal - $pagosProveedores - $gastosOperativos - $retirosEfectivo,
                 2
             );
 
@@ -403,6 +501,7 @@ class TurnoCajaService
                 'total_pagos_proveedores' => $pagosProveedores,
                 'total_gastos_operativos' => $gastosOperativos,
                 'total_retiros_efectivo' => $retirosEfectivo,
+                'total_depositos_efectivo' => $depositos,
                 'efectivo_esperado' => $efectivoEsperado,
                 'efectivo_real' => round($efectivoReal, 2),
                 'diferencia' => $diferencia,
@@ -411,6 +510,13 @@ class TurnoCajaService
                 'fecha_cierre' => now(),
                 'observaciones_cierre' => $observaciones ?? $turno->observaciones_cierre,
             ];
+
+            if ($hasStatusGerencia) {
+                $payload['status_gerencia'] = $this->statusGerenciaFromData(
+                    ['status_gerencia' => $statusGerencia],
+                    (string) $turno->status_gerencia,
+                );
+            }
 
             if ($efectivoRealCajera !== null) {
                 $payload['efectivo_real_cajera'] = round($efectivoRealCajera, 2);
@@ -424,6 +530,39 @@ class TurnoCajaService
         });
     }
 
+    /**
+     * Cierre de gerencia: solo actualiza status_gerencia.
+     * No toca status_administrador ni los totales del corte.
+     */
+    private function cerrarPorGerencia(TurnoCaja $turno, mixed $statusGerencia): TurnoCaja
+    {
+        if (! $turno->isGerenciaOpen()) {
+            throw new HttpException(422, 'La validación gerencial ya fue cerrada.');
+        }
+
+        $turno->status_gerencia = $this->statusGerenciaFromData(
+            ['status_gerencia' => $statusGerencia],
+            TurnoCaja::STATUS_CERRADO,
+        );
+        $turno->save();
+
+        return $turno->refresh()->load($this->turnoRelations());
+    }
+
+    private function statusGerenciaFromData(array $data, string $default): string
+    {
+        if (! array_key_exists('status_gerencia', $data)) {
+            return $default;
+        }
+
+        $value = $data['status_gerencia'];
+        if ($value === null || $value === '') {
+            return $default;
+        }
+
+        return is_scalar($value) ? (string) $value : $default;
+    }
+
     private function syncGastoTotals(TurnoCaja $turno): void
     {
         $gastos = $this->sumGastosByTipo($turno);
@@ -433,6 +572,38 @@ class TurnoCajaService
             'total_gastos_operativos' => $gastos['gasto_operativo'],
             'total_retiros_efectivo' => $gastos['retiro_efectivo'],
         ])->save();
+    }
+
+    private function syncDepositoTotals(TurnoCaja $turno): void
+    {
+        $turno->forceFill([
+            'total_depositos_efectivo' => $this->sumDepositos($turno),
+        ])->save();
+    }
+
+    private function assertCanRegisterDeposito(TurnoCaja $turno, User|Staff $actor): void
+    {
+        if ($actor instanceof Staff) {
+            $actor->loadMissing('role');
+
+            if ($actor->role?->allows('corteCaja')) {
+                if ((int) $turno->negocio_id !== (int) $actor->negocio_id) {
+                    throw new HttpException(403, 'No puedes registrar depósitos en este turno de caja.');
+                }
+
+                return;
+            }
+
+            if ((int) $turno->id_user !== (int) $actor->id) {
+                throw new HttpException(403, 'No puedes registrar depósitos en el turno de otra cajera.');
+            }
+
+            return;
+        }
+
+        if ((int) $turno->negocio_id !== (int) ($actor->negocio?->id)) {
+            throw new HttpException(403, 'No puedes registrar depósitos en este turno de caja.');
+        }
     }
 
     private function assertCanRegisterGasto(TurnoCaja $turno, User|Staff $actor): void
@@ -516,10 +687,34 @@ class TurnoCajaService
         $actor->loadMissing('role');
 
         $canCorte = (bool) $actor->role?->allows('corteCaja')
-            || (bool) $actor->role?->allows('corteCajaCajera');
+            || (bool) $actor->role?->allows('corteCajaCajera')
+            || (bool) $actor->role?->allows('corteCajaGerenteAdmo');
 
         if (! $canCorte) {
             throw new HttpException(403, 'No tienes permiso para realizar el corte de caja.');
+        }
+    }
+
+    private function assertCanCerrarGerencia(User|Staff $actor, TurnoCaja $turno): void
+    {
+        if ($actor instanceof User) {
+            if ((int) $turno->negocio_id !== (int) ($actor->negocio?->id)) {
+                throw new HttpException(403, 'No puedes gestionar este turno de caja.');
+            }
+
+            return;
+        }
+
+        $actor->loadMissing('role');
+        $canGerencia = (bool) $actor->role?->allows('corteCajaGerenteAdmo')
+            || (bool) $actor->role?->allows('corteCaja');
+
+        if (! $canGerencia) {
+            throw new HttpException(403, 'No tienes permiso para cerrar la validación gerencial.');
+        }
+
+        if ((int) $turno->negocio_id !== (int) $actor->negocio_id) {
+            throw new HttpException(403, 'No puedes gestionar este turno de caja.');
         }
     }
 
@@ -528,8 +723,8 @@ class TurnoCajaService
         if ($actor instanceof Staff) {
             $actor->loadMissing('role');
 
-            // Staff con corteCaja (admin) puede cerrar cortes de su negocio.
-            if ($actor->role?->allows('corteCaja')) {
+            // Staff con corteCaja (admin) o corteCajaGerenteAdmo puede gestionar cortes de su negocio.
+            if ($actor->role?->allows('corteCaja') || $actor->role?->allows('corteCajaGerenteAdmo')) {
                 if ((int) $turno->negocio_id !== (int) $actor->negocio_id) {
                     throw new HttpException(403, 'No puedes gestionar este turno de caja.');
                 }

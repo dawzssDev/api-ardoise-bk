@@ -153,14 +153,17 @@ class TurnoCajaController extends Controller
             $negocio = $this->turnos->negocioForUser($request->user());
             $turno = $this->turnos->findForNegocio($negocio, $id);
             $data = $request->validated();
+            $cierreGerencia = ! $turno->isAdminOpen();
             $turno = $this->turnos->cerrar(
                 $turno,
                 $request->user(),
-                (float) $data['efectivo_real'],
+                (float) ($data['efectivo_real'] ?? 0),
                 $data['observaciones_cierre'] ?? null,
                 array_key_exists('efectivo_real_cajera', $data) && $data['efectivo_real_cajera'] !== null
                     ? (float) $data['efectivo_real_cajera']
                     : null,
+                $data['status_gerencia'] ?? null,
+                array_key_exists('status_gerencia', $data),
             );
         } catch (HttpException $e) {
             return $this->errorResponse($e);
@@ -168,7 +171,9 @@ class TurnoCajaController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Corte de caja realizado correctamente.',
+            'message' => $cierreGerencia
+                ? 'Validación gerencial cerrada correctamente.'
+                : 'Corte de caja realizado correctamente.',
             'data' => [
                 'turno' => (new TurnoCajaResource($turno))->resolve(),
             ],

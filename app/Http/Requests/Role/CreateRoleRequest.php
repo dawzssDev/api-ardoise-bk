@@ -129,6 +129,7 @@ class CreateRoleRequest extends FormRequest
             'permissions.pedidosListos' => ['required', 'boolean'],
             'permissions.corteCaja' => ['required', 'boolean'],
             'permissions.corteCajaCajera' => ['sometimes', 'boolean'],
+            'permissions.corteCajaGerenteAdmo' => ['sometimes', 'boolean'],
             'permissions.cuentas_por_cobrar' => ['sometimes', 'boolean'],
             'permissions.ventaDirecta' => ['sometimes', 'boolean'],
             'permissions.levantarOrden' => ['sometimes', 'boolean'],

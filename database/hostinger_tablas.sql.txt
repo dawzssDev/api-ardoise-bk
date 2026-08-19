@@ -799,12 +799,14 @@ CREATE TABLE `tb_turnos_cajas` (
   `total_pagos_proveedores` decimal(12,2) NOT NULL DEFAULT 0.00,
   `total_gastos_operativos` decimal(12,2) NOT NULL DEFAULT 0.00,
   `total_retiros_efectivo` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `total_depositos_efectivo` decimal(12,2) NOT NULL DEFAULT 0.00,
   `efectivo_esperado` decimal(12,2) NOT NULL DEFAULT 0.00,
   `efectivo_real` decimal(12,2) NULL DEFAULT NULL,
   `efectivo_real_cajera` decimal(12,2) NULL DEFAULT NULL,
   `diferencia` decimal(12,2) NULL DEFAULT NULL,
   `status` varchar(20) NOT NULL DEFAULT 'abierto',
   `status_administrador` varchar(20) NOT NULL DEFAULT 'abierto',
+  `status_gerencia` varchar(20) NOT NULL DEFAULT 'abierto',
   `fecha_apertura` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `fecha_cierre` timestamp NULL DEFAULT NULL,
   `fecha_cierre_cajera` timestamp NULL DEFAULT NULL,
@@ -818,6 +820,7 @@ CREATE TABLE `tb_turnos_cajas` (
   KEY `tb_turnos_cajas_sucursal_id_foreign` (`sucursal_id`),
   KEY `tb_turnos_cajas_negocio_id_sucursal_id_status_index` (`negocio_id`, `sucursal_id`, `status`),
   KEY `tb_turnos_cajas_negocio_sucursal_status_admin_index` (`negocio_id`, `sucursal_id`, `status_administrador`),
+  KEY `tb_turnos_cajas_negocio_sucursal_status_gerencia_index` (`negocio_id`, `sucursal_id`, `status_gerencia`),
   KEY `tb_turnos_cajas_id_user_status_index` (`id_user`, `status`),
   KEY `tb_turnos_cajas_user_id_status_index` (`user_id`, `status`),
   CONSTRAINT `tb_turnos_cajas_id_user_foreign`
@@ -892,6 +895,7 @@ RESUMEN (orden de creación)
   1p. tb_tipos_venta      ← FK a negocios (ver sección al final)
   1q. tb_cuentas_por_cobrar ← FK a negocios + sucursales + empleados + ordenes (ver sección al final)
   1r. tb_gastos_en_turno  ← FK a tb_turnos_cajas + staff + users + negocios + sucursales
+  1s. tb_deposito_efectivo_en_turno ← FK a tb_turnos_cajas + staff + users + negocios + sucursales
  2. password_reset_tokens
  3. sessions
  4. cache
@@ -1197,6 +1201,64 @@ ALTER TABLE `staff`
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_08_17_010000_add_password_authorization_to_staff_table', 1),
 ('2026_08_17_020000_hash_password_authorization_on_staff_table', 1);
+
+================================================================================
+1s) tb_deposito_efectivo_en_turno  (depósitos de efectivo durante el turno)
+================================================================================
+-- id_user = cajero (staff) que registró el movimiento
+-- user_id = maestro (si el dueño registra el depósito)
+CREATE TABLE `tb_deposito_efectivo_en_turno` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `turno_caja_id` bigint UNSIGNED NOT NULL,
+  `id_user` bigint UNSIGNED NULL DEFAULT NULL,
+  `user_id` bigint UNSIGNED NULL DEFAULT NULL,
+  `negocio_id` bigint UNSIGNED NOT NULL,
+  `sucursal_id` bigint UNSIGNED NOT NULL,
+  `descripcion` varchar(500) NOT NULL,
+  `monto` decimal(12,2) NOT NULL,
+  `fecha_registro` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `tb_deposito_efectivo_en_turno_turno_caja_id_foreign` (`turno_caja_id`),
+  KEY `tb_deposito_efectivo_en_turno_id_user_foreign` (`id_user`),
+  KEY `tb_deposito_efectivo_en_turno_user_id_foreign` (`user_id`),
+  KEY `tb_deposito_efectivo_en_turno_negocio_id_foreign` (`negocio_id`),
+  KEY `tb_deposito_efectivo_en_turno_sucursal_id_foreign` (`sucursal_id`),
+  KEY `tb_deposito_efectivo_en_turno_turno_caja_id_index` (`turno_caja_id`),
+  KEY `tb_deposito_efectivo_en_turno_negocio_sucursal_fecha_index` (`negocio_id`, `sucursal_id`, `fecha_registro`),
+  CONSTRAINT `tb_deposito_efectivo_en_turno_turno_caja_id_foreign`
+    FOREIGN KEY (`turno_caja_id`) REFERENCES `tb_turnos_cajas` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `tb_deposito_efectivo_en_turno_id_user_foreign`
+    FOREIGN KEY (`id_user`) REFERENCES `staff` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `tb_deposito_efectivo_en_turno_user_id_foreign`
+    FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `tb_deposito_efectivo_en_turno_negocio_id_foreign`
+    FOREIGN KEY (`negocio_id`) REFERENCES `negocios` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `tb_deposito_efectivo_en_turno_sucursal_id_foreign`
+    FOREIGN KEY (`sucursal_id`) REFERENCES `sucursales` (`id`) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+================================================================================
+ALTER tb_turnos_cajas — total_depositos_efectivo
+================================================================================
+-- Si `tb_turnos_cajas` ya existe sin este campo, ejecuta:
+ALTER TABLE `tb_turnos_cajas`
+  ADD COLUMN `total_depositos_efectivo` decimal(12,2) NOT NULL DEFAULT 0.00 AFTER `total_retiros_efectivo`;
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_08_18_010000_create_tb_deposito_efectivo_en_turno_table', 1);
+
+================================================================================
+ALTER tb_turnos_cajas — status_gerencia
+================================================================================
+-- Si `tb_turnos_cajas` ya existe sin este campo, ejecuta:
+ALTER TABLE `tb_turnos_cajas`
+  ADD COLUMN `status_gerencia` varchar(20) NOT NULL DEFAULT 'abierto' AFTER `status_administrador`,
+  ADD KEY `tb_turnos_cajas_negocio_sucursal_status_gerencia_index` (`negocio_id`, `sucursal_id`, `status_gerencia`);
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_08_18_020000_add_status_gerencia_to_tb_turnos_cajas_table', 1);
 
 ================================================================================
 FIN

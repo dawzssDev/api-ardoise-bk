@@ -34,6 +34,15 @@ class AbrirTurnoCajaRequest extends FormRequest
             }
         }
 
+        if (! $this->exists('status_gerencia')) {
+            foreach (['statusGerencia', 'estatus_gerencia', 'estatusGerencia'] as $alias) {
+                if ($this->exists($alias)) {
+                    $merge['status_gerencia'] = $this->input($alias);
+                    break;
+                }
+            }
+        }
+
         if ($merge !== []) {
             $this->merge($merge);
         }
@@ -55,6 +64,7 @@ class AbrirTurnoCajaRequest extends FormRequest
                 ),
             ],
             'fondo_inicial' => ['sometimes', 'nullable', 'numeric', 'min:0'],
+            'status_gerencia' => ['sometimes'],
         ];
     }
 

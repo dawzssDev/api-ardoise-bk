@@ -32,12 +32,14 @@ class TurnoCaja extends Model
         'total_pagos_proveedores',
         'total_gastos_operativos',
         'total_retiros_efectivo',
+        'total_depositos_efectivo',
         'efectivo_esperado',
         'efectivo_real',
         'efectivo_real_cajera',
         'diferencia',
         'status',
         'status_administrador',
+        'status_gerencia',
         'fecha_apertura',
         'fecha_cierre',
         'fecha_cierre_cajera',
@@ -55,6 +57,7 @@ class TurnoCaja extends Model
             'total_pagos_proveedores' => 'decimal:2',
             'total_gastos_operativos' => 'decimal:2',
             'total_retiros_efectivo' => 'decimal:2',
+            'total_depositos_efectivo' => 'decimal:2',
             'efectivo_esperado' => 'decimal:2',
             'efectivo_real' => 'decimal:2',
             'efectivo_real_cajera' => 'decimal:2',
@@ -73,6 +76,11 @@ class TurnoCaja extends Model
     public function isAdminOpen(): bool
     {
         return $this->status_administrador === self::STATUS_ABIERTO;
+    }
+
+    public function isGerenciaOpen(): bool
+    {
+        return $this->status_gerencia === self::STATUS_ABIERTO;
     }
 
     public function cajera(): BelongsTo
@@ -103,5 +111,10 @@ class TurnoCaja extends Model
     public function gastos(): HasMany
     {
         return $this->hasMany(GastoEnTurno::class, 'turno_caja_id');
+    }
+
+    public function depositos(): HasMany
+    {
+        return $this->hasMany(DepositoEnTurno::class, 'turno_caja_id');
     }
 }

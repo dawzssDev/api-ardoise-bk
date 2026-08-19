@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\TurnoCaja;
 
+use App\Models\TurnoCaja;
 use Illuminate\Foundation\Http\FormRequest;
 
 class CerrarTurnoCajaRequest extends FormRequest
@@ -42,6 +43,15 @@ class CerrarTurnoCajaRequest extends FormRequest
             }
         }
 
+        if (! $this->exists('status_gerencia')) {
+            foreach (['statusGerencia', 'estatus_gerencia', 'estatusGerencia'] as $alias) {
+                if ($this->exists($alias)) {
+                    $merge['status_gerencia'] = $this->input($alias);
+                    break;
+                }
+            }
+        }
+
         if ($merge !== []) {
             $this->merge($merge);
         }
@@ -52,10 +62,16 @@ class CerrarTurnoCajaRequest extends FormRequest
      */
     public function rules(): array
     {
+        $turno = TurnoCaja::query()->find((int) $this->route('id'));
+        $cierreGerencia = $turno && ! $turno->isAdminOpen();
+
         return [
-            'efectivo_real' => ['required', 'numeric', 'min:0'],
+            'efectivo_real' => $cierreGerencia
+                ? ['sometimes', 'nullable', 'numeric', 'min:0']
+                : ['required', 'numeric', 'min:0'],
             'efectivo_real_cajera' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'observaciones_cierre' => ['sometimes', 'nullable', 'string', 'max:2000'],
+            'status_gerencia' => ['sometimes'],
         ];
     }
 

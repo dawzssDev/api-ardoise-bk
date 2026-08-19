@@ -34,6 +34,7 @@ class TurnoCajaTest extends TestCase
             ->assertCreated()
             ->assertJsonPath('data.turno.status', TurnoCaja::STATUS_ABIERTO)
             ->assertJsonPath('data.turno.status_administrador', TurnoCaja::STATUS_ABIERTO)
+            ->assertJsonPath('data.turno.status_gerencia', TurnoCaja::STATUS_ABIERTO)
             ->assertJsonPath('data.turno.fondo_inicial', '500.00');
 
         $this->postJson('/api/ordenes', [
@@ -105,6 +106,77 @@ class TurnoCajaTest extends TestCase
             ->assertJsonPath('data.turno.diferencia', '10.00');
 
         $this->assertDatabaseCount('tb_ventas', 3);
+    }
+
+    public function test_status_gerencia_is_saved_on_create_and_update_without_validation(): void
+    {
+        [, , , , $staff] = $this->seedCajaContext();
+
+        Sanctum::actingAs($staff);
+
+        $turnoId = $this->postJson('/api/turnos-caja/abrir', [
+            'fondo_inicial' => 100,
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.turno.status_gerencia', TurnoCaja::STATUS_ABIERTO)
+            ->json('data.turno.id');
+
+        $this->getJson("/api/turnos-caja/{$turnoId}")
+            ->assertOk()
+            ->assertJsonPath('data.turno.status_gerencia', TurnoCaja::STATUS_ABIERTO);
+
+        $this->postJson("/api/turnos-caja/{$turnoId}/cerrar", [
+            'efectivo_real' => 100,
+            'status_gerencia' => 'cerrado',
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.turno.status_gerencia', 'cerrado');
+
+        $this->assertDatabaseHas('tb_turnos_cajas', [
+            'id' => $turnoId,
+            'status_gerencia' => 'cerrado',
+        ]);
+    }
+
+    public function test_gerencia_can_close_status_gerencia_after_admin_already_closed(): void
+    {
+        [$user, $negocio, $sucursal, $producto, $staff] = $this->seedCajaContext();
+
+        $permissions = Role::defaultPermissions();
+        $permissions['corteCaja'] = false;
+        $permissions['corteCajaCajera'] = true;
+        $staff->role->update(['permissions' => $permissions]);
+
+        Sanctum::actingAs($staff);
+        $turnoId = $this->postJson('/api/turnos-caja/abrir', [
+            'fondo_inicial' => 100,
+        ])->assertCreated()->json('data.turno.id');
+
+        $this->postJson("/api/turnos-caja/{$turnoId}/cerrar", [
+            'efectivo_real' => 100,
+        ])->assertOk();
+
+        Sanctum::actingAs($user);
+        $this->postJson("/api/turnos-caja/{$turnoId}/cerrar", [
+            'efectivo_real' => 100,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.turno.status_administrador', TurnoCaja::STATUS_CERRADO)
+            ->assertJsonPath('data.turno.status_gerencia', TurnoCaja::STATUS_ABIERTO);
+
+        $this->postJson("/api/turnos-caja/{$turnoId}/cerrar", [
+            'status_gerencia' => 'cerrado',
+        ])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.turno.status_administrador', TurnoCaja::STATUS_CERRADO)
+            ->assertJsonPath('data.turno.status_gerencia', TurnoCaja::STATUS_CERRADO);
+
+        $this->assertDatabaseHas('tb_turnos_cajas', [
+            'id' => $turnoId,
+            'status_administrador' => TurnoCaja::STATUS_CERRADO,
+            'status_gerencia' => TurnoCaja::STATUS_CERRADO,
+        ]);
     }
 
     public function test_login_and_me_expose_caja_status_for_staff(): void

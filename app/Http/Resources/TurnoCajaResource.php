@@ -42,6 +42,7 @@ class TurnoCajaResource extends JsonResource
             'total_pagos_proveedores' => (string) $this->total_pagos_proveedores,
             'total_gastos_operativos' => (string) $this->total_gastos_operativos,
             'total_retiros_efectivo' => (string) $this->total_retiros_efectivo,
+            'total_depositos_efectivo' => (string) $this->total_depositos_efectivo,
             'efectivo_esperado' => (string) $this->efectivo_esperado,
             'efectivo_real' => $this->efectivo_real !== null ? (string) $this->efectivo_real : null,
             'efectivo_real_cajera' => $this->efectivo_real_cajera !== null
@@ -51,6 +52,8 @@ class TurnoCajaResource extends JsonResource
             'status' => $this->status,
             'status_administrador' => $this->status_administrador,
             'statusAdministrador' => $this->status_administrador,
+            'status_gerencia' => $this->status_gerencia,
+            'statusGerencia' => $this->status_gerencia,
             'fecha_apertura' => $this->fecha_apertura?->toIso8601String(),
             'fecha_cierre' => $this->fecha_cierre?->toIso8601String(),
             'fecha_cierre_cajera' => $this->fecha_cierre_cajera?->toIso8601String(),

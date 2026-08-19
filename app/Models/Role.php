@@ -34,6 +34,7 @@ class Role extends Model
         'corteCajaCajera',
         'ventaDirecta',
         'levantarOrden',
+        'corteCajaGerenteAdmo',
     ];
 
     /**
@@ -54,6 +55,7 @@ class Role extends Model
         'ready' => 'pedidosListos',
         'corte_caja' => 'corteCaja',
         'corte_caja_cajera' => 'corteCajaCajera',
+        'corte_caja_gerente_admo' => 'corteCajaGerenteAdmo',
         'cuentasPorCobrar' => 'cuentas_por_cobrar',
         'venta_directa' => 'ventaDirecta',
         'levantar_orden' => 'levantarOrden',
