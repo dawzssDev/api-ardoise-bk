@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\OrdenController;
 use App\Http\Controllers\Api\PasswordResetController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\ProductoController;
+use App\Http\Controllers\Api\ProveedorController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\StaffController;
 use App\Http\Controllers\Api\StockInsumoController;
@@ -162,6 +163,13 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::put('/empleados/{id}', [EmpleadoController::class, 'update'])->whereNumber('id');
     Route::put('/empleados/{id}/status', [EmpleadoController::class, 'setStatus'])->whereNumber('id');
     Route::delete('/empleados/{id}', [EmpleadoController::class, 'destroy'])->whereNumber('id');
+
+    // Proveedores del negocio (no se ligan a sucursal; delete = baja lógica)
+    Route::get('/proveedores', [ProveedorController::class, 'index']);
+    Route::post('/proveedores', [ProveedorController::class, 'store']);
+    Route::get('/proveedores/{id}', [ProveedorController::class, 'show'])->whereNumber('id');
+    Route::put('/proveedores/{id}', [ProveedorController::class, 'update'])->whereNumber('id');
+    Route::delete('/proveedores/{id}', [ProveedorController::class, 'destroy'])->whereNumber('id');
 
     // PIN de autorización en la sucursal de sesión (maestro y staff)
     Route::get('/staff/password-authorization', [StaffController::class, 'passwordAuthorization']);

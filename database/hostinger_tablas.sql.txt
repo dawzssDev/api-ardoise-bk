@@ -1261,5 +1261,42 @@ INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_08_18_020000_add_status_gerencia_to_tb_turnos_cajas_table', 1);
 
 ================================================================================
+CREATE proveedores  (catálogo por negocio; no se ligan a sucursal)
+================================================================================
+-- status: 1 = activo, 0 = baja (DELETE /api/proveedores/{id} solo cambia a 0)
+CREATE TABLE `proveedores` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `negocio_id` bigint UNSIGNED NOT NULL,
+  `name` varchar(150) NOT NULL,
+  `legal_name` varchar(180) NULL DEFAULT NULL,
+  `rfc` varchar(13) NULL DEFAULT NULL,
+  `phone` varchar(20) NULL DEFAULT NULL,
+  `email` varchar(150) NULL DEFAULT NULL,
+  `address` varchar(255) NULL DEFAULT NULL,
+  `contact_name` varchar(150) NULL DEFAULT NULL,
+  `notes` varchar(500) NULL DEFAULT NULL,
+  `status` tinyint UNSIGNED NOT NULL DEFAULT 1,
+  `created_by` bigint UNSIGNED NOT NULL,
+  `updated_by` bigint UNSIGNED NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `proveedores_negocio_id_name_unique` (`negocio_id`, `name`),
+  KEY `proveedores_negocio_id_foreign` (`negocio_id`),
+  KEY `proveedores_created_by_foreign` (`created_by`),
+  KEY `proveedores_updated_by_foreign` (`updated_by`),
+  KEY `proveedores_negocio_id_status_index` (`negocio_id`, `status`),
+  CONSTRAINT `proveedores_negocio_id_foreign`
+    FOREIGN KEY (`negocio_id`) REFERENCES `negocios` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `proveedores_created_by_foreign`
+    FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `proveedores_updated_by_foreign`
+    FOREIGN KEY (`updated_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_08_19_010000_create_proveedores_table', 1);
+
+================================================================================
 FIN
 ================================================================================
