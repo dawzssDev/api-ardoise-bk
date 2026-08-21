@@ -3,9 +3,9 @@
 namespace Tests\Feature;
 
 use App\Models\GastoEnTurno;
+use App\Models\Proveedor;
 use App\Models\Role;
 use App\Models\Sucursal;
-use App\Models\TurnoCaja;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -18,6 +18,7 @@ class GastoEnTurnoTest extends TestCase
     public function test_staff_can_register_gastos_on_open_turno(): void
     {
         [$user, $negocio, $sucursal, $staff] = $this->seedCajaContext();
+        $proveedor = $this->createProveedor($user, $negocio);
 
         Sanctum::actingAs($staff);
 
@@ -27,6 +28,7 @@ class GastoEnTurnoTest extends TestCase
 
         $this->postJson("/api/turnos-caja/{$turnoId}/gastos", [
             'tipo' => 'Pago proveedor',
+            'proveedor_id' => $proveedor->id,
             'descripcion' => 'Pago a distribuidor de refrescos',
             'monto' => 150.5,
         ])
@@ -34,6 +36,9 @@ class GastoEnTurnoTest extends TestCase
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.gasto.tipo_gasto', GastoEnTurno::TIPO_PAGO_PROVEEDOR)
             ->assertJsonPath('data.gasto.tipo_gasto_label', 'Pago proveedor')
+            ->assertJsonPath('data.gasto.proveedor_id', $proveedor->id)
+            ->assertJsonPath('data.gasto.proveedor.id', $proveedor->id)
+            ->assertJsonPath('data.gasto.proveedor.name', 'Distribuidora Norte')
             ->assertJsonPath('data.gasto.descripcion', 'Pago a distribuidor de refrescos')
             ->assertJsonPath('data.gasto.monto', '150.50')
             ->assertJsonPath('data.gasto.negocio_id', $negocio->id)
@@ -44,9 +49,12 @@ class GastoEnTurnoTest extends TestCase
 
         $this->postJson("/api/turnos-caja/{$turnoId}/gastos", [
             'tipo_gasto' => 'gasto_operativo',
+            'proveedor_id' => $proveedor->id,
             'descripcion' => 'Compra de bolsas',
             'monto' => 40,
-        ])->assertCreated();
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.gasto.proveedor_id', null);
 
         $this->postJson('/api/turnos-caja/actual/gastos', [
             'tipo' => 'Retiro de efectivo',
@@ -55,9 +63,20 @@ class GastoEnTurnoTest extends TestCase
         ])
             ->assertCreated()
             ->assertJsonPath('data.gasto.tipo_gasto', GastoEnTurno::TIPO_RETIRO_EFECTIVO)
+            ->assertJsonPath('data.gasto.proveedor_id', null)
             ->assertJsonPath('data.turno.total_retiros_efectivo', '20.00');
 
         $this->assertDatabaseCount('tb_gastos_en_turno', 3);
+        $this->assertDatabaseHas('tb_gastos_en_turno', [
+            'turno_caja_id' => $turnoId,
+            'tipo_gasto' => GastoEnTurno::TIPO_PAGO_PROVEEDOR,
+            'proveedor_id' => $proveedor->id,
+        ]);
+        $this->assertDatabaseHas('tb_gastos_en_turno', [
+            'turno_caja_id' => $turnoId,
+            'tipo_gasto' => GastoEnTurno::TIPO_GASTO_OPERATIVO,
+            'proveedor_id' => null,
+        ]);
         $this->assertDatabaseHas('tb_turnos_cajas', [
             'id' => $turnoId,
             'total_pagos_proveedores' => 150.50,
@@ -105,7 +124,7 @@ class GastoEnTurnoTest extends TestCase
         ])->assertOk();
 
         $this->postJson("/api/turnos-caja/{$turnoId}/gastos", [
-            'tipo' => 'Pago proveedor',
+            'tipo' => 'Gasto operativo',
             'descripcion' => 'Ya cerrado',
             'monto' => 10,
         ])
@@ -168,6 +187,7 @@ class GastoEnTurnoTest extends TestCase
     public function test_corte_de_caja_subtracts_gastos_from_diferencia(): void
     {
         [$user, $negocio, $sucursal, $staff] = $this->seedCajaContext();
+        $proveedor = $this->createProveedor($user, $negocio);
 
         Sanctum::actingAs($staff);
 
@@ -177,6 +197,7 @@ class GastoEnTurnoTest extends TestCase
 
         $this->postJson("/api/turnos-caja/{$turnoId}/gastos", [
             'tipo' => 'Pago proveedor',
+            'id_proveedor' => $proveedor->id,
             'descripcion' => 'Proveedor',
             'monto' => 30,
         ])->assertCreated();
@@ -238,6 +259,71 @@ class GastoEnTurnoTest extends TestCase
         ])->assertStatus(422);
     }
 
+    public function test_pago_proveedor_requires_active_proveedor_of_negocio(): void
+    {
+        [$user, $negocio, $sucursal, $staff] = $this->seedCajaContext();
+        $proveedor = $this->createProveedor($user, $negocio);
+
+        $baja = $negocio->proveedores()->create([
+            'name' => 'Proveedor Baja',
+            'status' => Proveedor::STATUS_BAJA,
+            'created_by' => $user->id,
+        ]);
+
+        $other = User::factory()->create();
+        $otherNegocio = $other->negocio()->create([
+            'name' => 'Otro Negocio',
+            'phone' => '5522222222',
+            'needs_invoice' => false,
+        ]);
+        $ajeno = $otherNegocio->proveedores()->create([
+            'name' => 'Proveedor Ajeno',
+            'status' => Proveedor::STATUS_ACTIVO,
+            'created_by' => $other->id,
+        ]);
+
+        Sanctum::actingAs($staff);
+
+        $turnoId = $this->postJson('/api/turnos-caja/abrir', [
+            'fondo_inicial' => 50,
+        ])->assertCreated()->json('data.turno.id');
+
+        $this->postJson("/api/turnos-caja/{$turnoId}/gastos", [
+            'tipo' => 'Pago proveedor',
+            'descripcion' => 'Sin proveedor',
+            'monto' => 10,
+        ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['proveedor_id']);
+
+        $this->postJson("/api/turnos-caja/{$turnoId}/gastos", [
+            'tipo' => 'Pago proveedor',
+            'proveedor_id' => $baja->id,
+            'descripcion' => 'Proveedor de baja',
+            'monto' => 10,
+        ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['proveedor_id']);
+
+        $this->postJson("/api/turnos-caja/{$turnoId}/gastos", [
+            'tipo' => 'Pago proveedor',
+            'proveedor_id' => $ajeno->id,
+            'descripcion' => 'Proveedor de otro negocio',
+            'monto' => 10,
+        ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['proveedor_id']);
+
+        $this->postJson("/api/turnos-caja/{$turnoId}/gastos", [
+            'tipo' => 'Pago proveedor',
+            'proveedor' => $proveedor->id,
+            'descripcion' => 'Pago válido',
+            'monto' => 12,
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.gasto.proveedor_id', $proveedor->id);
+    }
+
     /**
      * @return array{0: User, 1: \App\Models\Negocio, 2: Sucursal, 3: \App\Models\Staff}
      */
@@ -290,5 +376,14 @@ class GastoEnTurnoTest extends TestCase
         ]);
 
         return [$user, $negocio, $sucursal, $staff];
+    }
+
+    private function createProveedor(User $user, \App\Models\Negocio $negocio): Proveedor
+    {
+        return $negocio->proveedores()->create([
+            'name' => 'Distribuidora Norte',
+            'status' => Proveedor::STATUS_ACTIVO,
+            'created_by' => $user->id,
+        ]);
     }
 }

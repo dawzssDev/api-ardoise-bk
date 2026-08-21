@@ -86,7 +86,12 @@ class GastoEnTurnoController extends Controller
 
     private function gastoCreatedResponse(GastoEnTurno $gasto): JsonResponse
     {
-        $gasto->load(['cajero:id,username,sucursal_id', 'user:id,name,email', 'sucursal:id,negocio_id,type,name']);
+        $gasto->load([
+            'cajero:id,username,sucursal_id',
+            'user:id,name,email',
+            'sucursal:id,negocio_id,type,name',
+            'proveedor:id,negocio_id,name,legal_name,rfc,status',
+        ]);
         $turno = $gasto->turnoCaja?->load([
             'cajera:id,negocio_id,username,sucursal_id,empleado_id,status',
             'user:id,name,email',

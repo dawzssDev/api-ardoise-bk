@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Proveedor extends Model
 {
@@ -43,6 +44,11 @@ class Proveedor extends Model
     public function negocio(): BelongsTo
     {
         return $this->belongsTo(Negocio::class);
+    }
+
+    public function gastosEnTurno(): HasMany
+    {
+        return $this->hasMany(GastoEnTurno::class);
     }
 
     public function createdBy(): BelongsTo

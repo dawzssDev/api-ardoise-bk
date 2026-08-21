@@ -37,6 +37,7 @@ class GastoEnTurno extends Model
         'negocio_id',
         'sucursal_id',
         'tipo_gasto',
+        'proveedor_id',
         'descripcion',
         'monto',
         'fecha_registro',
@@ -105,6 +106,11 @@ class GastoEnTurno extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    public function proveedor(): BelongsTo
+    {
+        return $this->belongsTo(Proveedor::class);
     }
 
     public function sucursal(): BelongsTo

@@ -1109,6 +1109,8 @@ INSERT INTO `migrations` (`migration`, `batch`) VALUES
 -- tipo_gasto: pago_proveedor | gasto_operativo | retiro_efectivo
 -- id_user = cajero (staff) que registró el movimiento
 -- user_id = maestro (si el dueño registra el gasto)
+-- proveedor_id: obligatorio en pago_proveedor; NULL en gasto_operativo y retiro_efectivo
+-- (la FK se agrega después de crear `proveedores`; ver ALTER más abajo)
 CREATE TABLE `tb_gastos_en_turno` (
   `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
   `turno_caja_id` bigint UNSIGNED NOT NULL,
@@ -1296,6 +1298,21 @@ CREATE TABLE `proveedores` (
 
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_08_19_010000_create_proveedores_table', 1);
+
+================================================================================
+ALTER tb_gastos_en_turno — proveedor_id
+================================================================================
+-- Requiere que exista `proveedores`. En pago_proveedor guarda el id; en
+-- gasto_operativo / retiro_efectivo queda NULL.
+ALTER TABLE `tb_gastos_en_turno`
+  ADD COLUMN `proveedor_id` bigint UNSIGNED NULL DEFAULT NULL AFTER `tipo_gasto`,
+  ADD KEY `tb_gastos_en_turno_proveedor_id_foreign` (`proveedor_id`),
+  ADD KEY `tb_gastos_en_turno_negocio_id_proveedor_id_index` (`negocio_id`, `proveedor_id`),
+  ADD CONSTRAINT `tb_gastos_en_turno_proveedor_id_foreign`
+    FOREIGN KEY (`proveedor_id`) REFERENCES `proveedores` (`id`) ON DELETE RESTRICT;
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_08_20_010000_add_proveedor_id_to_tb_gastos_en_turno_table', 1);
 
 ================================================================================
 FIN

@@ -6,6 +6,7 @@ use App\Models\DepositoEnTurno;
 use App\Models\GastoEnTurno;
 use App\Models\Negocio;
 use App\Models\Orden;
+use App\Models\Proveedor;
 use App\Models\Staff;
 use App\Models\TurnoCaja;
 use App\Models\User;
@@ -235,7 +236,7 @@ class TurnoCajaService
     }
 
     /**
-     * @param  array{tipo_gasto: string, descripcion: string, monto: float|int|string}  $data
+     * @param  array{tipo_gasto: string, descripcion: string, monto: float|int|string, proveedor_id?: int|null}  $data
      */
     public function registrarGasto(TurnoCaja $turno, User|Staff $actor, array $data): GastoEnTurno
     {
@@ -255,7 +256,9 @@ class TurnoCajaService
             throw new HttpException(422, 'El monto debe ser mayor a cero.');
         }
 
-        return DB::transaction(function () use ($turno, $actor, $data, $tipo, $monto) {
+        $proveedorId = $this->resolveProveedorIdForGasto($turno, $tipo, $data['proveedor_id'] ?? null);
+
+        return DB::transaction(function () use ($turno, $actor, $data, $tipo, $monto, $proveedorId) {
             $gasto = GastoEnTurno::query()->create([
                 'turno_caja_id' => $turno->id,
                 'id_user' => $actor instanceof Staff ? $actor->id : $turno->id_user,
@@ -263,6 +266,7 @@ class TurnoCajaService
                 'negocio_id' => $turno->negocio_id,
                 'sucursal_id' => $turno->sucursal_id,
                 'tipo_gasto' => $tipo,
+                'proveedor_id' => $proveedorId,
                 'descripcion' => trim((string) $data['descripcion']),
                 'monto' => $monto,
                 'fecha_registro' => now(),
@@ -274,6 +278,33 @@ class TurnoCajaService
         });
     }
 
+    private function resolveProveedorIdForGasto(TurnoCaja $turno, string $tipo, mixed $proveedorId): ?int
+    {
+        if ($tipo !== GastoEnTurno::TIPO_PAGO_PROVEEDOR) {
+            return null;
+        }
+
+        $id = (int) $proveedorId;
+        if ($id < 1) {
+            throw new HttpException(422, 'El proveedor es obligatorio cuando el gasto es un pago a proveedor.');
+        }
+
+        $proveedor = Proveedor::query()
+            ->where('negocio_id', $turno->negocio_id)
+            ->whereKey($id)
+            ->first();
+
+        if (! $proveedor) {
+            throw new HttpException(422, 'El proveedor no existe o no pertenece a tu negocio.');
+        }
+
+        if (! $proveedor->isActivo()) {
+            throw new HttpException(422, 'No puedes registrar un pago a un proveedor dado de baja.');
+        }
+
+        return $proveedor->id;
+    }
+
     public function listGastos(TurnoCaja $turno, int $perPage = 50): LengthAwarePaginator
     {
         return $turno->gastos()
@@ -281,6 +312,7 @@ class TurnoCajaService
                 'cajero:id,username,sucursal_id',
                 'user:id,name,email',
                 'sucursal:id,negocio_id,type,name',
+                'proveedor:id,negocio_id,name,legal_name,rfc,status',
             ])
             ->latest('id')
             ->paginate($perPage);
