@@ -1315,5 +1315,107 @@ INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_08_20_010000_add_proveedor_id_to_tb_gastos_en_turno_table', 1);
 
 ================================================================================
+CREATE mae_cuenta_conta_suc / mae_cuenta_conta_suc_detalle
+================================================================================
+-- tipo_cuenta: maestra | subcuenta
+-- sucursal_id: NULL si maestra; obligatorio si subcuenta (sucursal del negocio)
+-- status: 1 = activo, 0 = inactivo
+-- deleted: 0 = vigente, 1 = baja lógica (DELETE solo cambia este campo)
+CREATE TABLE `mae_cuenta_conta_suc` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `negocio_id` bigint UNSIGNED NOT NULL,
+  `tipo_cuenta` varchar(20) NOT NULL,
+  `sucursal_id` bigint UNSIGNED NULL DEFAULT NULL,
+  `titulo_cuenta` varchar(150) NOT NULL,
+  `descripcion_cuenta` varchar(500) NULL DEFAULT NULL,
+  `created_by` bigint UNSIGNED NOT NULL,
+  `updated_by` bigint UNSIGNED NULL DEFAULT NULL,
+  `status` tinyint UNSIGNED NOT NULL DEFAULT 1,
+  `deleted` tinyint UNSIGNED NOT NULL DEFAULT 0,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `mae_cuenta_conta_suc_negocio_id_foreign` (`negocio_id`),
+  KEY `mae_cuenta_conta_suc_sucursal_id_foreign` (`sucursal_id`),
+  KEY `mae_cuenta_conta_suc_created_by_foreign` (`created_by`),
+  KEY `mae_cuenta_conta_suc_updated_by_foreign` (`updated_by`),
+  KEY `mae_cuenta_conta_suc_negocio_tipo_deleted_index` (`negocio_id`, `tipo_cuenta`, `deleted`),
+  KEY `mae_cuenta_conta_suc_negocio_sucursal_index` (`negocio_id`, `sucursal_id`),
+  KEY `mae_cuenta_conta_suc_negocio_status_deleted_index` (`negocio_id`, `status`, `deleted`),
+  CONSTRAINT `mae_cuenta_conta_suc_negocio_id_foreign`
+    FOREIGN KEY (`negocio_id`) REFERENCES `negocios` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `mae_cuenta_conta_suc_sucursal_id_foreign`
+    FOREIGN KEY (`sucursal_id`) REFERENCES `sucursales` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `mae_cuenta_conta_suc_created_by_foreign`
+    FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `mae_cuenta_conta_suc_updated_by_foreign`
+    FOREIGN KEY (`updated_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- tipo_movimiento: deposito | transferencia
+-- cuenta_origen_id: NULL en depósito (opcional); obligatorio en transferencia
+-- monto_movimiento: monto del movimiento
+-- cuenta_destino_id: cuenta que recibe (si no se envía, usa mae_cuenta_conta_suc_id)
+CREATE TABLE `mae_cuenta_conta_suc_detalle` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `negocio_id` bigint UNSIGNED NOT NULL,
+  `mae_cuenta_conta_suc_id` bigint UNSIGNED NOT NULL,
+  `tipo_movimiento` varchar(20) NOT NULL,
+  `cuenta_origen_id` bigint UNSIGNED NULL DEFAULT NULL,
+  `monto_movimiento` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `cuenta_destino_id` bigint UNSIGNED NULL DEFAULT NULL,
+  `descripcion_movimiento` varchar(500) NOT NULL,
+  `created_by` bigint UNSIGNED NOT NULL,
+  `updated_by` bigint UNSIGNED NULL DEFAULT NULL,
+  `status` tinyint UNSIGNED NOT NULL DEFAULT 1,
+  `deleted` tinyint UNSIGNED NOT NULL DEFAULT 0,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `mae_cta_det_negocio_id_foreign` (`negocio_id`),
+  KEY `mae_cta_det_cuenta_id_foreign` (`mae_cuenta_conta_suc_id`),
+  KEY `mae_cta_det_origen_id_foreign` (`cuenta_origen_id`),
+  KEY `mae_cta_det_destino_id_foreign` (`cuenta_destino_id`),
+  KEY `mae_cta_det_created_by_foreign` (`created_by`),
+  KEY `mae_cta_det_updated_by_foreign` (`updated_by`),
+  KEY `mae_cta_det_negocio_cuenta_deleted_index` (`negocio_id`, `mae_cuenta_conta_suc_id`, `deleted`),
+  KEY `mae_cta_det_cuenta_tipo_index` (`mae_cuenta_conta_suc_id`, `tipo_movimiento`),
+  CONSTRAINT `mae_cta_det_negocio_id_foreign`
+    FOREIGN KEY (`negocio_id`) REFERENCES `negocios` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `mae_cta_det_cuenta_id_foreign`
+    FOREIGN KEY (`mae_cuenta_conta_suc_id`) REFERENCES `mae_cuenta_conta_suc` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `mae_cta_det_origen_id_foreign`
+    FOREIGN KEY (`cuenta_origen_id`) REFERENCES `mae_cuenta_conta_suc` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `mae_cta_det_destino_id_foreign`
+    FOREIGN KEY (`cuenta_destino_id`) REFERENCES `mae_cuenta_conta_suc` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `mae_cta_det_created_by_foreign`
+    FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `mae_cta_det_updated_by_foreign`
+    FOREIGN KEY (`updated_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_08_25_010000_create_mae_cuenta_conta_suc_tables', 1),
+('2026_08_25_020000_add_movimiento_fields_to_mae_cuenta_conta_suc_detalle', 1);
+
+================================================================================
+ALTER mae_cuenta_conta_suc_detalle — origen / monto / destino
+================================================================================
+-- Si la tabla ya existe sin estos campos, ejecuta:
+ALTER TABLE `mae_cuenta_conta_suc_detalle`
+  ADD COLUMN `cuenta_origen_id` bigint UNSIGNED NULL DEFAULT NULL AFTER `tipo_movimiento`,
+  ADD COLUMN `monto_movimiento` decimal(12,2) NOT NULL DEFAULT 0.00 AFTER `cuenta_origen_id`,
+  ADD COLUMN `cuenta_destino_id` bigint UNSIGNED NULL DEFAULT NULL AFTER `monto_movimiento`,
+  ADD KEY `mae_cta_det_origen_id_foreign` (`cuenta_origen_id`),
+  ADD KEY `mae_cta_det_destino_id_foreign` (`cuenta_destino_id`),
+  ADD CONSTRAINT `mae_cta_det_origen_id_foreign`
+    FOREIGN KEY (`cuenta_origen_id`) REFERENCES `mae_cuenta_conta_suc` (`id`) ON DELETE RESTRICT,
+  ADD CONSTRAINT `mae_cta_det_destino_id_foreign`
+    FOREIGN KEY (`cuenta_destino_id`) REFERENCES `mae_cuenta_conta_suc` (`id`) ON DELETE RESTRICT;
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_08_25_020000_add_movimiento_fields_to_mae_cuenta_conta_suc_detalle', 1);
+
+================================================================================
 FIN
 ================================================================================

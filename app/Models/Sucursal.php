@@ -54,4 +54,9 @@ class Sucursal extends Model
     {
         return $this->hasMany(StockProducto::class);
     }
+
+    public function cuentasContables(): HasMany
+    {
+        return $this->hasMany(MaeCuentaContaSuc::class);
+    }
 }

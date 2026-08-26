@@ -9,6 +9,8 @@ use App\Http\Controllers\Api\EmpleadoController;
 use App\Http\Controllers\Api\GastoEnTurnoController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\InsumoController;
+use App\Http\Controllers\Api\MaeCuentaContaSucController;
+use App\Http\Controllers\Api\MaeCuentaContaSucDetalleController;
 use App\Http\Controllers\Api\NegocioController;
 use App\Http\Controllers\Api\OrdenController;
 use App\Http\Controllers\Api\PasswordResetController;
@@ -170,6 +172,21 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::get('/proveedores/{id}', [ProveedorController::class, 'show'])->whereNumber('id');
     Route::put('/proveedores/{id}', [ProveedorController::class, 'update'])->whereNumber('id');
     Route::delete('/proveedores/{id}', [ProveedorController::class, 'destroy'])->whereNumber('id');
+
+    // Cuentas contables (maestra / subcuenta por sucursal)
+    Route::get('/cuentas-contables', [MaeCuentaContaSucController::class, 'index']);
+    Route::post('/cuentas-contables', [MaeCuentaContaSucController::class, 'store']);
+    Route::get('/cuentas-contables/{id}', [MaeCuentaContaSucController::class, 'show'])->whereNumber('id');
+    Route::put('/cuentas-contables/{id}', [MaeCuentaContaSucController::class, 'update'])->whereNumber('id');
+    Route::delete('/cuentas-contables/{id}', [MaeCuentaContaSucController::class, 'destroy'])->whereNumber('id');
+    Route::get('/cuentas-contables/{id}/detalles', [MaeCuentaContaSucDetalleController::class, 'indexByCuenta'])->whereNumber('id');
+    Route::post('/cuentas-contables/{id}/detalles', [MaeCuentaContaSucDetalleController::class, 'storeByCuenta'])->whereNumber('id');
+
+    Route::get('/cuentas-contables-detalles', [MaeCuentaContaSucDetalleController::class, 'index']);
+    Route::post('/cuentas-contables-detalles', [MaeCuentaContaSucDetalleController::class, 'store']);
+    Route::get('/cuentas-contables-detalles/{id}', [MaeCuentaContaSucDetalleController::class, 'show'])->whereNumber('id');
+    Route::put('/cuentas-contables-detalles/{id}', [MaeCuentaContaSucDetalleController::class, 'update'])->whereNumber('id');
+    Route::delete('/cuentas-contables-detalles/{id}', [MaeCuentaContaSucDetalleController::class, 'destroy'])->whereNumber('id');
 
     // PIN de autorización en la sucursal de sesión (maestro y staff)
     Route::get('/staff/password-authorization', [StaffController::class, 'passwordAuthorization']);

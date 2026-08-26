@@ -35,6 +35,7 @@ class Role extends Model
         'ventaDirecta',
         'levantarOrden',
         'corteCajaGerenteAdmo',
+        'cuentasContables',
     ];
 
     /**
@@ -60,6 +61,7 @@ class Role extends Model
         'venta_directa' => 'ventaDirecta',
         'levantar_orden' => 'levantarOrden',
         'stock_productos' => 'stock_products',
+        'cuentas_contables' => 'cuentasContables',
     ];
 
     protected $fillable = [

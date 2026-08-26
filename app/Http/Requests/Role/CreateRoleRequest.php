@@ -133,6 +133,7 @@ class CreateRoleRequest extends FormRequest
             'permissions.cuentas_por_cobrar' => ['sometimes', 'boolean'],
             'permissions.ventaDirecta' => ['sometimes', 'boolean'],
             'permissions.levantarOrden' => ['sometimes', 'boolean'],
+            'permissions.cuentasContables' => ['sometimes', 'boolean'],
             'status' => ['sometimes', 'boolean'],
         ];
     }

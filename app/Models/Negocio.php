@@ -89,6 +89,16 @@ class Negocio extends Model
         return $this->hasMany(Proveedor::class);
     }
 
+    public function cuentasContables(): HasMany
+    {
+        return $this->hasMany(MaeCuentaContaSuc::class);
+    }
+
+    public function cuentasContablesDetalles(): HasMany
+    {
+        return $this->hasMany(MaeCuentaContaSucDetalle::class);
+    }
+
     public function staff(): HasMany
     {
         return $this->hasMany(Staff::class);
