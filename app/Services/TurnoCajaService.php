@@ -9,6 +9,7 @@ use App\Models\Orden;
 use App\Models\Proveedor;
 use App\Models\Staff;
 use App\Models\TurnoCaja;
+use App\Models\TurnoCajaCorte;
 use App\Models\User;
 use App\Models\Venta;
 use App\Services\Concerns\ResolvesNegocioFromActor;
@@ -88,6 +89,7 @@ class TurnoCajaService
         if ($this->isCajeraClose($actor)) {
             return $this->cerrarPorCajera(
                 $turno,
+                $actor,
                 $efectivoReal,
                 $observaciones,
                 $efectivoRealCajera,
@@ -98,6 +100,7 @@ class TurnoCajaService
 
         return $this->cerrarPorAdministrador(
             $turno,
+            $actor,
             $efectivoReal,
             $observaciones,
             $efectivoRealCajera,
@@ -420,24 +423,72 @@ class TurnoCajaService
 
     public function previewCierre(TurnoCaja $turno): array
     {
-        $totales = $this->sumVentasByPayment($turno);
-        $gastos = $this->sumGastosByTipo($turno);
-        $depositos = $this->sumDepositos($turno);
+        $movimientos = $this->totalesMovimientos($turno);
 
         return [
-            'total_ventas_efectivo' => $totales['efectivo'],
-            'total_ventas_tarjeta' => $totales['tarjeta'],
-            'total_ventas_transferencia' => $totales['transferencia'],
-            'total_ventas' => $totales['total'],
-            'total_pagos_proveedores' => $gastos['pago_proveedor'],
-            'total_gastos_operativos' => $gastos['gasto_operativo'],
-            'total_retiros_efectivo' => $gastos['retiro_efectivo'],
-            'total_depositos_efectivo' => $depositos,
-            'efectivo_esperado' => $totales['efectivo'],
+            ...$movimientos,
+            'efectivo_esperado' => $movimientos['total_ventas_efectivo'],
             'fondo_inicial' => (float) $turno->fondo_inicial,
             'status' => $turno->status,
             'status_administrador' => $turno->status_administrador,
             'status_gerencia' => $turno->status_gerencia,
+            'tramo_actual' => $this->totalesTramoActual($turno),
+            'cortes_acumulados' => $this->sumCortes($turno),
+        ];
+    }
+
+    /**
+     * Corte parcial (tipo_corte = 1). El turno sigue abierto.
+     */
+    public function registrarCorteParcial(
+        TurnoCaja $turno,
+        User|Staff $actor,
+        float $efectivoRealCajera,
+        ?string $observaciones = null,
+    ): TurnoCajaCorte {
+        $this->assertCanCorteCaja($actor);
+        $this->assertCanManageTurno($turno, $actor);
+
+        if (! $turno->isOpen()) {
+            throw new HttpException(422, 'No puedes registrar un corte parcial en un turno cerrado.');
+        }
+
+        if ($this->hasCorteCierre($turno)) {
+            throw new HttpException(422, 'Este turno ya tiene un corte de cierre.');
+        }
+
+        if ($efectivoRealCajera < 0) {
+            throw new HttpException(422, 'El efectivo real de la cajera no puede ser negativo.');
+        }
+
+        return DB::transaction(function () use ($turno, $actor, $efectivoRealCajera, $observaciones) {
+            return $this->createCorte(
+                $turno,
+                $actor,
+                TurnoCajaCorte::TIPO_PARCIAL,
+                $efectivoRealCajera,
+                $observaciones,
+            );
+        });
+    }
+
+    /**
+     * @return array{
+     *     cortes: list<TurnoCajaCorte>,
+     *     tramo_actual: array<string, float>,
+     *     acumulado: array<string, float>
+     * }
+     */
+    public function listCortes(TurnoCaja $turno): array
+    {
+        return [
+            'cortes' => $turno->cortes()
+                ->with($this->corteRelations())
+                ->orderBy('id')
+                ->get()
+                ->all(),
+            'tramo_actual' => $this->totalesTramoActual($turno),
+            'acumulado' => $this->sumCortes($turno),
         ];
     }
 
@@ -446,6 +497,7 @@ class TurnoCajaService
      */
     private function cerrarPorCajera(
         TurnoCaja $turno,
+        User|Staff $actor,
         float $efectivoReal,
         ?string $observaciones,
         ?float $efectivoRealCajera,
@@ -458,22 +510,15 @@ class TurnoCajaService
 
         $efectivoRealCajera ??= $efectivoReal;
 
-        return DB::transaction(function () use ($turno, $observaciones, $efectivoRealCajera, $statusGerencia, $hasStatusGerencia) {
-            $totales = $this->sumVentasByPayment($turno);
-            $gastos = $this->sumGastosByTipo($turno);
-            $depositos = $this->sumDepositos($turno);
+        return DB::transaction(function () use ($turno, $actor, $observaciones, $efectivoRealCajera, $statusGerencia, $hasStatusGerencia) {
+            $this->ensureCorteCierre($turno, $actor, $efectivoRealCajera, $observaciones);
+            $cortes = $this->sumCortes($turno);
+            $live = $this->sumVentasByPayment($turno);
 
             $payload = [
-                'total_ventas_efectivo' => $totales['efectivo'],
-                'total_ventas_tarjeta' => $totales['tarjeta'],
-                'total_ventas_transferencia' => $totales['transferencia'],
-                'total_ventas' => $totales['total'],
-                'total_pagos_proveedores' => $gastos['pago_proveedor'],
-                'total_gastos_operativos' => $gastos['gasto_operativo'],
-                'total_retiros_efectivo' => $gastos['retiro_efectivo'],
-                'total_depositos_efectivo' => $depositos,
-                'efectivo_esperado' => $totales['efectivo'],
-                'efectivo_real_cajera' => round($efectivoRealCajera, 2),
+                ...$this->turnoTotalsFromCortes($cortes),
+                'efectivo_esperado' => $live['efectivo'],
+                'efectivo_real_cajera' => $cortes['efectivo_real_cajera'],
                 'fecha_cierre_cajera' => now(),
                 'status' => TurnoCaja::STATUS_CERRADO,
                 // El administrador aún debe cerrar el corte.
@@ -500,6 +545,7 @@ class TurnoCajaService
      */
     private function cerrarPorAdministrador(
         TurnoCaja $turno,
+        User|Staff $actor,
         float $efectivoReal,
         ?string $observaciones,
         ?float $efectivoRealCajera,
@@ -510,7 +556,15 @@ class TurnoCajaService
             throw new HttpException(422, 'Este corte de caja ya fue cerrado por el administrador.');
         }
 
-        return DB::transaction(function () use ($turno, $efectivoReal, $observaciones, $efectivoRealCajera, $statusGerencia, $hasStatusGerencia) {
+        return DB::transaction(function () use ($turno, $actor, $efectivoReal, $observaciones, $efectivoRealCajera, $statusGerencia, $hasStatusGerencia) {
+            $this->ensureCorteCierre(
+                $turno,
+                $actor,
+                $efectivoRealCajera ?? $efectivoReal,
+                $observaciones,
+            );
+
+            $cortes = $this->sumCortes($turno);
             $totales = $this->sumVentasByPayment($turno);
             $gastos = $this->sumGastosByTipo($turno);
             $depositos = $this->sumDepositos($turno);
@@ -526,20 +580,15 @@ class TurnoCajaService
             );
 
             $payload = [
-                'total_ventas_efectivo' => $totales['efectivo'],
-                'total_ventas_tarjeta' => $totales['tarjeta'],
-                'total_ventas_transferencia' => $totales['transferencia'],
-                'total_ventas' => $totales['total'],
-                'total_pagos_proveedores' => $pagosProveedores,
-                'total_gastos_operativos' => $gastosOperativos,
-                'total_retiros_efectivo' => $retirosEfectivo,
-                'total_depositos_efectivo' => $depositos,
+                ...$this->turnoTotalsFromCortes($cortes),
                 'efectivo_esperado' => $efectivoEsperado,
                 'efectivo_real' => round($efectivoReal, 2),
+                'efectivo_real_cajera' => $cortes['efectivo_real_cajera'],
                 'diferencia' => $diferencia,
                 'status' => TurnoCaja::STATUS_CERRADO,
                 'status_administrador' => TurnoCaja::STATUS_CERRADO,
                 'fecha_cierre' => now(),
+                'fecha_cierre_cajera' => $turno->fecha_cierre_cajera ?? now(),
                 'observaciones_cierre' => $observaciones ?? $turno->observaciones_cierre,
             ];
 
@@ -548,11 +597,6 @@ class TurnoCajaService
                     ['status_gerencia' => $statusGerencia],
                     (string) $turno->status_gerencia,
                 );
-            }
-
-            if ($efectivoRealCajera !== null) {
-                $payload['efectivo_real_cajera'] = round($efectivoRealCajera, 2);
-                $payload['fecha_cierre_cajera'] = $turno->fecha_cierre_cajera ?? now();
             }
 
             $turno->fill($payload);
@@ -593,6 +637,201 @@ class TurnoCajaService
         }
 
         return is_scalar($value) ? (string) $value : $default;
+    }
+
+    /**
+     * @return array{
+     *     total_ventas_efectivo: float,
+     *     total_ventas_tarjeta: float,
+     *     total_ventas_transferencia: float,
+     *     total_ventas: float,
+     *     total_pagos_proveedores: float,
+     *     total_gastos_operativos: float,
+     *     total_retiros_efectivo: float,
+     *     total_depositos_efectivo: float
+     * }
+     */
+    private function totalesMovimientos(TurnoCaja $turno): array
+    {
+        $totales = $this->sumVentasByPayment($turno);
+        $gastos = $this->sumGastosByTipo($turno);
+        $depositos = $this->sumDepositos($turno);
+
+        return [
+            'total_ventas_efectivo' => $totales['efectivo'],
+            'total_ventas_tarjeta' => $totales['tarjeta'],
+            'total_ventas_transferencia' => $totales['transferencia'],
+            'total_ventas' => $totales['total'],
+            'total_pagos_proveedores' => $gastos['pago_proveedor'],
+            'total_gastos_operativos' => $gastos['gasto_operativo'],
+            'total_retiros_efectivo' => $gastos['retiro_efectivo'],
+            'total_depositos_efectivo' => $depositos,
+        ];
+    }
+
+    /**
+     * Totales del tramo actual: movimientos vivos menos cortes ya guardados.
+     *
+     * @return array{
+     *     total_ventas_efectivo: float,
+     *     total_ventas_tarjeta: float,
+     *     total_ventas_transferencia: float,
+     *     total_ventas: float,
+     *     total_pagos_proveedores: float,
+     *     total_gastos_operativos: float,
+     *     total_retiros_efectivo: float,
+     *     total_depositos_efectivo: float
+     * }
+     */
+    private function totalesTramoActual(TurnoCaja $turno): array
+    {
+        $live = $this->totalesMovimientos($turno);
+        $prev = $this->sumCortes($turno);
+
+        return [
+            'total_ventas_efectivo' => $this->diffMoney($live['total_ventas_efectivo'], $prev['total_ventas_efectivo']),
+            'total_ventas_tarjeta' => $this->diffMoney($live['total_ventas_tarjeta'], $prev['total_ventas_tarjeta']),
+            'total_ventas_transferencia' => $this->diffMoney($live['total_ventas_transferencia'], $prev['total_ventas_transferencia']),
+            'total_ventas' => $this->diffMoney($live['total_ventas'], $prev['total_ventas']),
+            'total_pagos_proveedores' => $this->diffMoney($live['total_pagos_proveedores'], $prev['total_pagos_proveedores']),
+            'total_gastos_operativos' => $this->diffMoney($live['total_gastos_operativos'], $prev['total_gastos_operativos']),
+            'total_retiros_efectivo' => $this->diffMoney($live['total_retiros_efectivo'], $prev['total_retiros_efectivo']),
+            'total_depositos_efectivo' => $this->diffMoney($live['total_depositos_efectivo'], $prev['total_depositos_efectivo']),
+        ];
+    }
+
+    /**
+     * @return array{
+     *     total_ventas_efectivo: float,
+     *     total_ventas_tarjeta: float,
+     *     total_ventas_transferencia: float,
+     *     total_ventas: float,
+     *     total_pagos_proveedores: float,
+     *     total_gastos_operativos: float,
+     *     total_retiros_efectivo: float,
+     *     total_depositos_efectivo: float,
+     *     efectivo_real_cajera: float
+     * }
+     */
+    private function sumCortes(TurnoCaja $turno): array
+    {
+        $row = $turno->cortes()
+            ->selectRaw('
+                COALESCE(SUM(total_ventas_efectivo), 0) as total_ventas_efectivo,
+                COALESCE(SUM(total_ventas_tarjeta), 0) as total_ventas_tarjeta,
+                COALESCE(SUM(total_ventas_transferencia), 0) as total_ventas_transferencia,
+                COALESCE(SUM(total_ventas), 0) as total_ventas,
+                COALESCE(SUM(total_pagos_proveedores), 0) as total_pagos_proveedores,
+                COALESCE(SUM(total_gastos_operativos), 0) as total_gastos_operativos,
+                COALESCE(SUM(total_retiros_efectivo), 0) as total_retiros_efectivo,
+                COALESCE(SUM(total_depositos_efectivo), 0) as total_depositos_efectivo,
+                COALESCE(SUM(efectivo_real_cajera), 0) as efectivo_real_cajera
+            ')
+            ->first();
+
+        return [
+            'total_ventas_efectivo' => round((float) ($row?->total_ventas_efectivo ?? 0), 2),
+            'total_ventas_tarjeta' => round((float) ($row?->total_ventas_tarjeta ?? 0), 2),
+            'total_ventas_transferencia' => round((float) ($row?->total_ventas_transferencia ?? 0), 2),
+            'total_ventas' => round((float) ($row?->total_ventas ?? 0), 2),
+            'total_pagos_proveedores' => round((float) ($row?->total_pagos_proveedores ?? 0), 2),
+            'total_gastos_operativos' => round((float) ($row?->total_gastos_operativos ?? 0), 2),
+            'total_retiros_efectivo' => round((float) ($row?->total_retiros_efectivo ?? 0), 2),
+            'total_depositos_efectivo' => round((float) ($row?->total_depositos_efectivo ?? 0), 2),
+            'efectivo_real_cajera' => round((float) ($row?->efectivo_real_cajera ?? 0), 2),
+        ];
+    }
+
+    /**
+     * @param  array<string, float>  $cortes
+     * @return array<string, float>
+     */
+    private function turnoTotalsFromCortes(array $cortes): array
+    {
+        return [
+            'total_ventas_efectivo' => $cortes['total_ventas_efectivo'],
+            'total_ventas_tarjeta' => $cortes['total_ventas_tarjeta'],
+            'total_ventas_transferencia' => $cortes['total_ventas_transferencia'],
+            'total_ventas' => $cortes['total_ventas'],
+            'total_pagos_proveedores' => $cortes['total_pagos_proveedores'],
+            'total_gastos_operativos' => $cortes['total_gastos_operativos'],
+            'total_retiros_efectivo' => $cortes['total_retiros_efectivo'],
+            'total_depositos_efectivo' => $cortes['total_depositos_efectivo'],
+        ];
+    }
+
+    private function diffMoney(float $live, float $prev): float
+    {
+        return round(max(0, $live - $prev), 2);
+    }
+
+    private function hasCorteCierre(TurnoCaja $turno): bool
+    {
+        return $turno->cortes()
+            ->where('tipo_corte', TurnoCajaCorte::TIPO_CIERRE)
+            ->exists();
+    }
+
+    private function ensureCorteCierre(
+        TurnoCaja $turno,
+        User|Staff $actor,
+        float $efectivoRealCajera,
+        ?string $observaciones,
+    ): void {
+        if ($this->hasCorteCierre($turno)) {
+            return;
+        }
+
+        $this->createCorte(
+            $turno,
+            $actor,
+            TurnoCajaCorte::TIPO_CIERRE,
+            $efectivoRealCajera,
+            $observaciones,
+        );
+    }
+
+    private function createCorte(
+        TurnoCaja $turno,
+        User|Staff $actor,
+        int $tipoCorte,
+        float $efectivoRealCajera,
+        ?string $observaciones,
+    ): TurnoCajaCorte {
+        $turno->loadMissing('negocio');
+        $tramo = $this->totalesTramoActual($turno);
+
+        return TurnoCajaCorte::query()->create([
+            'turno_caja_id' => $turno->id,
+            'id_user' => $actor instanceof Staff ? $actor->id : $turno->id_user,
+            'user_id' => $actor instanceof User ? $actor->id : $this->auditUserId($actor, $turno->negocio),
+            'negocio_id' => $turno->negocio_id,
+            'sucursal_id' => $turno->sucursal_id,
+            'total_ventas_efectivo' => $tramo['total_ventas_efectivo'],
+            'total_ventas_tarjeta' => $tramo['total_ventas_tarjeta'],
+            'total_ventas_transferencia' => $tramo['total_ventas_transferencia'],
+            'total_ventas' => $tramo['total_ventas'],
+            'total_pagos_proveedores' => $tramo['total_pagos_proveedores'],
+            'total_gastos_operativos' => $tramo['total_gastos_operativos'],
+            'total_retiros_efectivo' => $tramo['total_retiros_efectivo'],
+            'total_depositos_efectivo' => $tramo['total_depositos_efectivo'],
+            'efectivo_real_cajera' => round($efectivoRealCajera, 2),
+            'tipo_corte' => $tipoCorte,
+            'fecha_cierre_cajera' => now(),
+            'observaciones_cierre' => $observaciones,
+        ])->load($this->corteRelations());
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function corteRelations(): array
+    {
+        return [
+            'cajera:id,negocio_id,username,sucursal_id,empleado_id,status',
+            'user:id,name,email',
+            'sucursal:id,negocio_id,type,name',
+        ];
     }
 
     private function syncGastoTotals(TurnoCaja $turno): void

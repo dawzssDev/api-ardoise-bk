@@ -4,27 +4,29 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class TurnoCaja extends Model
+class TurnoCajaCorte extends Model
 {
-    protected $table = 'tb_turnos_cajas';
+    protected $table = 'tb_turnos_cajas_cortes';
 
-    public const STATUS_ABIERTO = 'abierto';
+    public const TIPO_PARCIAL = 1;
 
-    public const STATUS_CERRADO = 'cerrado';
+    public const TIPO_CIERRE = 2;
 
-    public const STATUSES = [
-        self::STATUS_ABIERTO,
-        self::STATUS_CERRADO,
+    /**
+     * @var array<int, string>
+     */
+    public const TIPO_LABELS = [
+        self::TIPO_PARCIAL => 'parcial',
+        self::TIPO_CIERRE => 'cierre',
     ];
 
     protected $fillable = [
+        'turno_caja_id',
         'id_user',
         'user_id',
         'negocio_id',
         'sucursal_id',
-        'fondo_inicial',
         'total_ventas_efectivo',
         'total_ventas_tarjeta',
         'total_ventas_transferencia',
@@ -33,15 +35,8 @@ class TurnoCaja extends Model
         'total_gastos_operativos',
         'total_retiros_efectivo',
         'total_depositos_efectivo',
-        'efectivo_esperado',
-        'efectivo_real',
         'efectivo_real_cajera',
-        'diferencia',
-        'status',
-        'status_administrador',
-        'status_gerencia',
-        'fecha_apertura',
-        'fecha_cierre',
+        'tipo_corte',
         'fecha_cierre_cajera',
         'observaciones_cierre',
     ];
@@ -49,7 +44,6 @@ class TurnoCaja extends Model
     protected function casts(): array
     {
         return [
-            'fondo_inicial' => 'decimal:2',
             'total_ventas_efectivo' => 'decimal:2',
             'total_ventas_tarjeta' => 'decimal:2',
             'total_ventas_transferencia' => 'decimal:2',
@@ -58,29 +52,30 @@ class TurnoCaja extends Model
             'total_gastos_operativos' => 'decimal:2',
             'total_retiros_efectivo' => 'decimal:2',
             'total_depositos_efectivo' => 'decimal:2',
-            'efectivo_esperado' => 'decimal:2',
-            'efectivo_real' => 'decimal:2',
             'efectivo_real_cajera' => 'decimal:2',
-            'diferencia' => 'decimal:2',
-            'fecha_apertura' => 'datetime',
-            'fecha_cierre' => 'datetime',
+            'tipo_corte' => 'integer',
             'fecha_cierre_cajera' => 'datetime',
         ];
     }
 
-    public function isOpen(): bool
+    public function isParcial(): bool
     {
-        return $this->status === self::STATUS_ABIERTO;
+        return (int) $this->tipo_corte === self::TIPO_PARCIAL;
     }
 
-    public function isAdminOpen(): bool
+    public function isCierre(): bool
     {
-        return $this->status_administrador === self::STATUS_ABIERTO;
+        return (int) $this->tipo_corte === self::TIPO_CIERRE;
     }
 
-    public function isGerenciaOpen(): bool
+    public static function labelForTipo(int $tipo): string
     {
-        return $this->status_gerencia === self::STATUS_ABIERTO;
+        return self::TIPO_LABELS[$tipo] ?? (string) $tipo;
+    }
+
+    public function turnoCaja(): BelongsTo
+    {
+        return $this->belongsTo(TurnoCaja::class, 'turno_caja_id');
     }
 
     public function cajera(): BelongsTo
@@ -101,25 +96,5 @@ class TurnoCaja extends Model
     public function sucursal(): BelongsTo
     {
         return $this->belongsTo(Sucursal::class);
-    }
-
-    public function ventas(): HasMany
-    {
-        return $this->hasMany(Venta::class, 'turno_caja_id');
-    }
-
-    public function gastos(): HasMany
-    {
-        return $this->hasMany(GastoEnTurno::class, 'turno_caja_id');
-    }
-
-    public function depositos(): HasMany
-    {
-        return $this->hasMany(DepositoEnTurno::class, 'turno_caja_id');
-    }
-
-    public function cortes(): HasMany
-    {
-        return $this->hasMany(TurnoCajaCorte::class, 'turno_caja_id');
     }
 }

@@ -835,6 +835,54 @@ CREATE TABLE `tb_turnos_cajas` (
 
 
 --------------------------------------------------------------------------------
+1n2) tb_turnos_cajas_cortes  (cortes parciales y de cierre por tramo)
+--------------------------------------------------------------------------------
+-- tipo_corte: 1 = parcial (turno sigue abierto), 2 = cierre final.
+-- Cada fila guarda SOLO el tramo desde el corte anterior (o fecha_apertura) hasta este corte.
+-- Al cerrar el turno se inserta tipo_corte = 2 y tb_turnos_cajas.total_* = SUM de todos los cortes.
+CREATE TABLE `tb_turnos_cajas_cortes` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `turno_caja_id` bigint UNSIGNED NOT NULL,
+  `id_user` bigint UNSIGNED NULL DEFAULT NULL,
+  `user_id` bigint UNSIGNED NULL DEFAULT NULL,
+  `negocio_id` bigint UNSIGNED NOT NULL,
+  `sucursal_id` bigint UNSIGNED NOT NULL,
+  `total_ventas_efectivo` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `total_ventas_tarjeta` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `total_ventas_transferencia` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `total_ventas` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `total_pagos_proveedores` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `total_gastos_operativos` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `total_retiros_efectivo` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `total_depositos_efectivo` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `efectivo_real_cajera` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `tipo_corte` tinyint UNSIGNED NOT NULL,
+  `fecha_cierre_cajera` timestamp NULL DEFAULT NULL,
+  `observaciones_cierre` varchar(2000) NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `tb_turnos_cajas_cortes_turno_caja_id_foreign` (`turno_caja_id`),
+  KEY `tb_turnos_cajas_cortes_id_user_foreign` (`id_user`),
+  KEY `tb_turnos_cajas_cortes_user_id_foreign` (`user_id`),
+  KEY `tb_turnos_cajas_cortes_negocio_id_foreign` (`negocio_id`),
+  KEY `tb_turnos_cajas_cortes_sucursal_id_foreign` (`sucursal_id`),
+  KEY `tb_turnos_cajas_cortes_turno_tipo_index` (`turno_caja_id`, `tipo_corte`),
+  KEY `tb_turnos_cajas_cortes_negocio_sucursal_fecha_index` (`negocio_id`, `sucursal_id`, `fecha_cierre_cajera`),
+  CONSTRAINT `tb_turnos_cajas_cortes_turno_caja_id_foreign`
+    FOREIGN KEY (`turno_caja_id`) REFERENCES `tb_turnos_cajas` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `tb_turnos_cajas_cortes_id_user_foreign`
+    FOREIGN KEY (`id_user`) REFERENCES `staff` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `tb_turnos_cajas_cortes_user_id_foreign`
+    FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `tb_turnos_cajas_cortes_negocio_id_foreign`
+    FOREIGN KEY (`negocio_id`) REFERENCES `negocios` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `tb_turnos_cajas_cortes_sucursal_id_foreign`
+    FOREIGN KEY (`sucursal_id`) REFERENCES `sucursales` (`id`) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+--------------------------------------------------------------------------------
 1o) tb_ventas  (ventas ligadas al turno de caja)
 --------------------------------------------------------------------------------
 CREATE TABLE `tb_ventas` (
@@ -891,6 +939,7 @@ RESUMEN (orden de creación)
  1l. ordenes             ← FK a negocios + sucursales + users
  1m. orden_detalles      ← FK a ordenes + productos (+ tipo_venta vía ALTER)
  1n. tb_turnos_cajas     ← FK a staff + users + negocios + sucursales
+ 1n2. tb_turnos_cajas_cortes ← FK a tb_turnos_cajas + staff + users + negocios + sucursales
   1o. tb_ventas           ← FK a tb_turnos_cajas + staff + ordenes
   1p. tb_tipos_venta      ← FK a negocios (ver sección al final)
   1q. tb_cuentas_por_cobrar ← FK a negocios + sucursales + empleados + ordenes (ver sección al final)
@@ -1400,7 +1449,8 @@ CREATE TABLE `mae_cuenta_conta_suc_detalle` (
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_08_25_010000_create_mae_cuenta_conta_suc_tables', 1),
 ('2026_08_25_020000_add_movimiento_fields_to_mae_cuenta_conta_suc_detalle', 1),
-('2026_08_26_010000_add_saldo_to_mae_cuenta_conta_suc_table', 1);
+('2026_08_26_010000_add_saldo_to_mae_cuenta_conta_suc_table', 1),
+('2026_08_27_010000_create_tb_turnos_cajas_cortes_table', 1);
 
 ================================================================================
 ALTER mae_cuenta_conta_suc_detalle — origen / monto / destino
@@ -1429,6 +1479,13 @@ ALTER TABLE `mae_cuenta_conta_suc`
 
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_08_26_010000_add_saldo_to_mae_cuenta_conta_suc_table', 1);
+
+================================================================================
+CREATE tb_turnos_cajas_cortes
+================================================================================
+-- Si tb_turnos_cajas ya existe, ejecuta el CREATE de 1n2 y:
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_08_27_010000_create_tb_turnos_cajas_cortes_table', 1);
 
 ================================================================================
 FIN

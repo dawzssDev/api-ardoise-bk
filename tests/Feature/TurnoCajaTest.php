@@ -106,6 +106,15 @@ class TurnoCajaTest extends TestCase
             ->assertJsonPath('data.turno.diferencia', '10.00');
 
         $this->assertDatabaseCount('tb_ventas', 3);
+        $this->assertDatabaseHas('tb_turnos_cajas_cortes', [
+            'turno_caja_id' => $turnoId,
+            'tipo_corte' => 2,
+            'total_ventas_efectivo' => 100,
+            'total_ventas_tarjeta' => 80,
+            'total_ventas_transferencia' => 40,
+            'total_ventas' => 220,
+        ]);
+        $this->assertDatabaseCount('tb_turnos_cajas_cortes', 1);
     }
 
     public function test_status_gerencia_is_saved_on_create_and_update_without_validation(): void

@@ -5,8 +5,12 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\TurnoCaja\AbrirTurnoCajaRequest;
 use App\Http\Requests\TurnoCaja\CerrarTurnoCajaRequest;
+use App\Http\Requests\TurnoCaja\CreateCorteParcialTurnoRequest;
+use App\Http\Resources\TurnoCajaCorteResource;
 use App\Http\Resources\TurnoCajaResource;
 use App\Http\Resources\VentaResource;
+use App\Models\TurnoCaja;
+use App\Models\TurnoCajaCorte;
 use App\Services\TurnoCajaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -181,6 +185,66 @@ class TurnoCajaController extends Controller
         ]);
     }
 
+    public function cortes(Request $request, int $id): JsonResponse
+    {
+        try {
+            $negocio = $this->turnos->negocioForUser($request->user());
+            $turno = $this->turnos->findForNegocio($negocio, $id);
+            $payload = $this->turnos->listCortes($turno);
+        } catch (HttpException $e) {
+            return $this->errorResponse($e);
+        }
+
+        return $this->cortesResponse($turno->id, $payload);
+    }
+
+    public function storeCorte(CreateCorteParcialTurnoRequest $request, int $id): JsonResponse
+    {
+        try {
+            $negocio = $this->turnos->negocioForUser($request->user());
+            $turno = $this->turnos->findForNegocio($negocio, $id);
+            $data = $request->validated();
+            $corte = $this->turnos->registrarCorteParcial(
+                $turno,
+                $request->user(),
+                (float) $data['efectivo_real_cajera'],
+                $data['observaciones_cierre'] ?? null,
+            );
+        } catch (HttpException $e) {
+            return $this->errorResponse($e);
+        }
+
+        return $this->corteCreatedResponse($corte, $turno->refresh());
+    }
+
+    public function storeCorteActual(CreateCorteParcialTurnoRequest $request): JsonResponse
+    {
+        try {
+            $negocio = $this->turnos->negocioForUser($request->user());
+            $turno = $this->turnos->openTurnoForActor(
+                $negocio,
+                $request->user(),
+                $request->filled('sucursal_id') ? (int) $request->integer('sucursal_id') : null,
+            );
+
+            if (! $turno) {
+                throw new HttpException(422, 'Debes iniciar turno de caja antes de registrar un corte parcial.');
+            }
+
+            $data = $request->validated();
+            $corte = $this->turnos->registrarCorteParcial(
+                $turno,
+                $request->user(),
+                (float) $data['efectivo_real_cajera'],
+                $data['observaciones_cierre'] ?? null,
+            );
+        } catch (HttpException $e) {
+            return $this->errorResponse($e);
+        }
+
+        return $this->corteCreatedResponse($corte, $turno->refresh());
+    }
+
     public function ventas(Request $request, int $id): JsonResponse
     {
         try {
@@ -209,6 +273,41 @@ class TurnoCajaController extends Controller
             ],
             'errors' => null,
         ]);
+    }
+
+    /**
+     * @param  array{
+     *     cortes: list<\App\Models\TurnoCajaCorte>,
+     *     tramo_actual: array<string, float>,
+     *     acumulado: array<string, float>
+     * }  $payload
+     */
+    private function cortesResponse(int $turnoId, array $payload): JsonResponse
+    {
+        return response()->json([
+            'success' => true,
+            'message' => 'ok',
+            'data' => [
+                'turno_id' => $turnoId,
+                'cortes' => TurnoCajaCorteResource::collection($payload['cortes'])->resolve(),
+                'tramo_actual' => $payload['tramo_actual'],
+                'acumulado' => $payload['acumulado'],
+            ],
+            'errors' => null,
+        ]);
+    }
+
+    private function corteCreatedResponse(TurnoCajaCorte $corte, TurnoCaja $turno): JsonResponse
+    {
+        return response()->json([
+            'success' => true,
+            'message' => 'Corte parcial registrado correctamente.',
+            'data' => [
+                'corte' => (new TurnoCajaCorteResource($corte))->resolve(),
+                'turno' => (new TurnoCajaResource($turno))->resolve(),
+            ],
+            'errors' => null,
+        ], 201);
     }
 
     private function errorResponse(HttpException $e): JsonResponse
