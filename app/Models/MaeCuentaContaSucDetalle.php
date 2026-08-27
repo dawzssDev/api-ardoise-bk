@@ -20,7 +20,23 @@ class MaeCuentaContaSucDetalle extends Model
 
     public const STATUS_INACTIVO = 0;
 
+    public const STATUS_ACEPTADO = 1;
+
     public const STATUS_ACTIVO = 1;
+
+    public const STATUS_PENDIENTE = 2;
+
+    public const STATUS_RECHAZADO = 3;
+
+    /**
+     * @var array<int, string>
+     */
+    public const STATUS_LABELS = [
+        self::STATUS_INACTIVO => 'inactivo',
+        self::STATUS_ACEPTADO => 'aceptado',
+        self::STATUS_PENDIENTE => 'pendiente',
+        self::STATUS_RECHAZADO => 'rechazado',
+    ];
 
     public const DELETED_NO = 0;
 
@@ -84,6 +100,16 @@ class MaeCuentaContaSucDetalle extends Model
     public function isDeleted(): bool
     {
         return (int) $this->deleted === self::DELETED_YES;
+    }
+
+    public function isPendiente(): bool
+    {
+        return (int) $this->status === self::STATUS_PENDIENTE;
+    }
+
+    public static function labelForStatus(int $status): string
+    {
+        return self::STATUS_LABELS[$status] ?? (string) $status;
     }
 
     public function negocio(): BelongsTo

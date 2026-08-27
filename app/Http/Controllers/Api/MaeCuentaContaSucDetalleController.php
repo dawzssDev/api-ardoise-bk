@@ -60,6 +60,44 @@ class MaeCuentaContaSucDetalleController extends Controller
         return $this->listResponse($paginator);
     }
 
+    public function pendientes(Request $request): JsonResponse
+    {
+        try {
+            $negocio = $this->detalles->negocioForUser($request->user());
+            $sucursalIdInput = $request->input('sucursal_id', $request->input('SucursaliD', $request->input('sucursalId')));
+            $sucursalId = $this->detalles->sucursalIdForPendientes(
+                $negocio,
+                $request->user(),
+                $sucursalIdInput !== null && $sucursalIdInput !== '' ? (int) $sucursalIdInput : null,
+            );
+            $paginator = $this->detalles->listPendientesBySucursal(
+                $negocio,
+                $request->user(),
+                $sucursalId,
+                perPage: (int) $request->integer('per_page', 15),
+            );
+        } catch (HttpException $e) {
+            return $this->errorResponse($e);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'ok',
+            'data' => [
+                'sucursal_id' => $sucursalId,
+                'status' => MaeCuentaContaSucDetalle::STATUS_PENDIENTE,
+                'detalles' => MaeCuentaContaSucDetalleResource::collection($paginator->items())->resolve(),
+                'meta' => [
+                    'current_page' => $paginator->currentPage(),
+                    'last_page' => $paginator->lastPage(),
+                    'per_page' => $paginator->perPage(),
+                    'total' => $paginator->total(),
+                ],
+            ],
+            'errors' => null,
+        ]);
+    }
+
     public function store(CreateMaeCuentaContaSucDetalleRequest $request): JsonResponse
     {
         try {
@@ -68,9 +106,9 @@ class MaeCuentaContaSucDetalleController extends Controller
             $cuenta = $this->cuentas->findForNegocio($negocio, $cuentaId);
             $detalle = $this->detalles->create($cuenta, $request->user(), $request->validated())
                 ->load([
-                    'cuenta:id,negocio_id,tipo_cuenta,sucursal_id,titulo_cuenta,status,deleted',
-                    'cuentaOrigen:id,negocio_id,tipo_cuenta,sucursal_id,titulo_cuenta,status,deleted',
-                    'cuentaDestino:id,negocio_id,tipo_cuenta,sucursal_id,titulo_cuenta,status,deleted',
+                    'cuenta:id,negocio_id,tipo_cuenta,sucursal_id,titulo_cuenta,saldo,status,deleted',
+                    'cuentaOrigen:id,negocio_id,tipo_cuenta,sucursal_id,titulo_cuenta,saldo,status,deleted',
+                    'cuentaDestino:id,negocio_id,tipo_cuenta,sucursal_id,titulo_cuenta,saldo,status,deleted',
                     'createdBy:id,name,email',
                     'updatedBy:id,name,email',
                 ]);
@@ -88,9 +126,9 @@ class MaeCuentaContaSucDetalleController extends Controller
             $cuenta = $this->cuentas->findForNegocio($negocio, $id);
             $detalle = $this->detalles->create($cuenta, $request->user(), $request->validated())
                 ->load([
-                    'cuenta:id,negocio_id,tipo_cuenta,sucursal_id,titulo_cuenta,status,deleted',
-                    'cuentaOrigen:id,negocio_id,tipo_cuenta,sucursal_id,titulo_cuenta,status,deleted',
-                    'cuentaDestino:id,negocio_id,tipo_cuenta,sucursal_id,titulo_cuenta,status,deleted',
+                    'cuenta:id,negocio_id,tipo_cuenta,sucursal_id,titulo_cuenta,saldo,status,deleted',
+                    'cuentaOrigen:id,negocio_id,tipo_cuenta,sucursal_id,titulo_cuenta,saldo,status,deleted',
+                    'cuentaDestino:id,negocio_id,tipo_cuenta,sucursal_id,titulo_cuenta,saldo,status,deleted',
                     'createdBy:id,name,email',
                     'updatedBy:id,name,email',
                 ]);
@@ -154,6 +192,46 @@ class MaeCuentaContaSucDetalleController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Movimiento eliminado correctamente.',
+            'data' => [
+                'detalle' => (new MaeCuentaContaSucDetalleResource($detalle))->resolve(),
+            ],
+            'errors' => null,
+        ]);
+    }
+
+    public function aceptar(Request $request, int $id): JsonResponse
+    {
+        try {
+            $negocio = $this->detalles->negocioForUser($request->user());
+            $detalle = $this->detalles->findForNegocio($negocio, $id);
+            $detalle = $this->detalles->aceptar($detalle, $request->user());
+        } catch (HttpException $e) {
+            return $this->errorResponse($e);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Solicitud aceptada. El monto se acreditó a la subcuenta.',
+            'data' => [
+                'detalle' => (new MaeCuentaContaSucDetalleResource($detalle))->resolve(),
+            ],
+            'errors' => null,
+        ]);
+    }
+
+    public function rechazar(Request $request, int $id): JsonResponse
+    {
+        try {
+            $negocio = $this->detalles->negocioForUser($request->user());
+            $detalle = $this->detalles->findForNegocio($negocio, $id);
+            $detalle = $this->detalles->rechazar($detalle, $request->user());
+        } catch (HttpException $e) {
+            return $this->errorResponse($e);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Solicitud rechazada. El monto se devolvió a la cuenta maestra.',
             'data' => [
                 'detalle' => (new MaeCuentaContaSucDetalleResource($detalle))->resolve(),
             ],

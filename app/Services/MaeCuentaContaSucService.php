@@ -37,6 +37,7 @@ class MaeCuentaContaSucService
             'descripcion_cuenta' => isset($data['descripcion_cuenta'])
                 ? trim((string) $data['descripcion_cuenta'])
                 : null,
+            'saldo' => $data['saldo'] ?? 0,
             'status' => $data['status'] ?? MaeCuentaContaSuc::STATUS_ACTIVO,
             'deleted' => MaeCuentaContaSuc::DELETED_NO,
             'created_by' => $auditId,

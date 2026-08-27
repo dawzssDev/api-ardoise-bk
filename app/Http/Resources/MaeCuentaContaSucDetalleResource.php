@@ -41,7 +41,7 @@ class MaeCuentaContaSucDetalleResource extends JsonResource
             'descripcion_movimiento' => $this->descripcion_movimiento,
             'descripcionMovimiento' => $this->descripcion_movimiento,
             'status' => $status,
-            'status_label' => $status === MaeCuentaContaSucDetalle::STATUS_ACTIVO ? 'activo' : 'inactivo',
+            'status_label' => MaeCuentaContaSucDetalle::labelForStatus($status),
             'deleted' => $deleted,
             'delete' => $deleted,
             'userCreation' => $this->created_by,
@@ -64,7 +64,7 @@ class MaeCuentaContaSucDetalleResource extends JsonResource
     }
 
     /**
-     * @return array{id: int, tipo_cuenta: string, sucursal_id: int|null, titulo_cuenta: string}|null
+     * @return array{id: int, tipo_cuenta: string, sucursal_id: int|null, titulo_cuenta: string, saldo: string}|null
      */
     private function cuentaSnippet(mixed $cuenta): ?array
     {
@@ -77,6 +77,7 @@ class MaeCuentaContaSucDetalleResource extends JsonResource
             'tipo_cuenta' => $cuenta->tipo_cuenta,
             'sucursal_id' => $cuenta->sucursal_id,
             'titulo_cuenta' => $cuenta->titulo_cuenta,
+            'saldo' => (string) $cuenta->saldo,
         ];
     }
 }

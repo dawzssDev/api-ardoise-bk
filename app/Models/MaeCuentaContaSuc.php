@@ -33,6 +33,7 @@ class MaeCuentaContaSuc extends Model
         'sucursal_id',
         'titulo_cuenta',
         'descripcion_cuenta',
+        'saldo',
         'created_by',
         'updated_by',
         'status',
@@ -42,6 +43,7 @@ class MaeCuentaContaSuc extends Model
     protected function casts(): array
     {
         return [
+            'saldo' => 'decimal:2',
             'status' => 'integer',
             'deleted' => 'integer',
         ];

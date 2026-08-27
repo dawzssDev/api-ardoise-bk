@@ -183,9 +183,12 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/cuentas-contables/{id}/detalles', [MaeCuentaContaSucDetalleController::class, 'storeByCuenta'])->whereNumber('id');
 
     Route::get('/cuentas-contables-detalles', [MaeCuentaContaSucDetalleController::class, 'index']);
+    Route::get('/cuentas-contables-detalles/pendientes', [MaeCuentaContaSucDetalleController::class, 'pendientes']);
     Route::post('/cuentas-contables-detalles', [MaeCuentaContaSucDetalleController::class, 'store']);
     Route::get('/cuentas-contables-detalles/{id}', [MaeCuentaContaSucDetalleController::class, 'show'])->whereNumber('id');
     Route::put('/cuentas-contables-detalles/{id}', [MaeCuentaContaSucDetalleController::class, 'update'])->whereNumber('id');
+    Route::post('/cuentas-contables-detalles/{id}/aceptar', [MaeCuentaContaSucDetalleController::class, 'aceptar'])->whereNumber('id');
+    Route::post('/cuentas-contables-detalles/{id}/rechazar', [MaeCuentaContaSucDetalleController::class, 'rechazar'])->whereNumber('id');
     Route::delete('/cuentas-contables-detalles/{id}', [MaeCuentaContaSucDetalleController::class, 'destroy'])->whereNumber('id');
 
     // PIN de autorización en la sucursal de sesión (maestro y staff)

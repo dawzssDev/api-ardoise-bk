@@ -33,6 +33,7 @@ class MaeCuentaContaSucResource extends JsonResource
             'tituloCuenta' => $this->titulo_cuenta,
             'descripcion_cuenta' => $this->descripcion_cuenta,
             'descripcionCuenta' => $this->descripcion_cuenta,
+            'saldo' => (string) $this->saldo,
             'status' => $status,
             'status_label' => $status === MaeCuentaContaSuc::STATUS_ACTIVO ? 'activo' : 'inactivo',
             'deleted' => $deleted,

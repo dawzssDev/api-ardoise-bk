@@ -1321,6 +1321,7 @@ CREATE mae_cuenta_conta_suc / mae_cuenta_conta_suc_detalle
 -- sucursal_id: NULL si maestra; obligatorio si subcuenta (sucursal del negocio)
 -- status: 1 = activo, 0 = inactivo
 -- deleted: 0 = vigente, 1 = baja lógica (DELETE solo cambia este campo)
+-- saldo: saldo actual (las transferencias maestra→subcuenta restan aquí al crear)
 CREATE TABLE `mae_cuenta_conta_suc` (
   `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
   `negocio_id` bigint UNSIGNED NOT NULL,
@@ -1328,6 +1329,7 @@ CREATE TABLE `mae_cuenta_conta_suc` (
   `sucursal_id` bigint UNSIGNED NULL DEFAULT NULL,
   `titulo_cuenta` varchar(150) NOT NULL,
   `descripcion_cuenta` varchar(500) NULL DEFAULT NULL,
+  `saldo` decimal(12,2) NOT NULL DEFAULT 0.00,
   `created_by` bigint UNSIGNED NOT NULL,
   `updated_by` bigint UNSIGNED NULL DEFAULT NULL,
   `status` tinyint UNSIGNED NOT NULL DEFAULT 1,
@@ -1353,6 +1355,7 @@ CREATE TABLE `mae_cuenta_conta_suc` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- tipo_movimiento: deposito | transferencia
+-- status detalle: 0 inactivo | 1 aceptado | 2 pendiente (maestra→subcuenta) | 3 rechazado
 -- cuenta_origen_id: NULL en depósito (opcional); obligatorio en transferencia
 -- monto_movimiento: monto del movimiento
 -- cuenta_destino_id: cuenta que recibe (si no se envía, usa mae_cuenta_conta_suc_id)
@@ -1396,7 +1399,8 @@ CREATE TABLE `mae_cuenta_conta_suc_detalle` (
 
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_08_25_010000_create_mae_cuenta_conta_suc_tables', 1),
-('2026_08_25_020000_add_movimiento_fields_to_mae_cuenta_conta_suc_detalle', 1);
+('2026_08_25_020000_add_movimiento_fields_to_mae_cuenta_conta_suc_detalle', 1),
+('2026_08_26_010000_add_saldo_to_mae_cuenta_conta_suc_table', 1);
 
 ================================================================================
 ALTER mae_cuenta_conta_suc_detalle — origen / monto / destino
@@ -1415,6 +1419,16 @@ ALTER TABLE `mae_cuenta_conta_suc_detalle`
 
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_08_25_020000_add_movimiento_fields_to_mae_cuenta_conta_suc_detalle', 1);
+
+================================================================================
+ALTER mae_cuenta_conta_suc — saldo
+================================================================================
+-- Si `mae_cuenta_conta_suc` ya existe sin este campo, ejecuta:
+ALTER TABLE `mae_cuenta_conta_suc`
+  ADD COLUMN `saldo` decimal(12,2) NOT NULL DEFAULT 0.00 AFTER `descripcion_cuenta`;
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_08_26_010000_add_saldo_to_mae_cuenta_conta_suc_table', 1);
 
 ================================================================================
 FIN
