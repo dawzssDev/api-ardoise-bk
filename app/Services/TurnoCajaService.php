@@ -121,7 +121,7 @@ class TurnoCajaService
             ->with($this->turnoRelations())
             ->latest('id');
 
-        if ($actor instanceof Staff && ! $this->staffHasCorteAdmin($actor)) {
+        if ($actor instanceof Staff && ! $this->staffCanListAllTurnos($actor)) {
             $query->where('id_user', $actor->id);
         }
 
@@ -158,8 +158,8 @@ class TurnoCajaService
             $query->where('sucursal_id', $sucursalId);
         }
 
-        // Cajera solo ve los suyos; admin/dueño ve todos los pendientes de la sucursal.
-        if ($actor instanceof Staff && ! $this->staffHasCorteAdmin($actor)) {
+        // Cajera solo ve los suyos; admin/gerencia/dueño ve todos los pendientes de la sucursal.
+        if ($actor instanceof Staff && ! $this->staffCanListAllTurnos($actor)) {
             $query->where('id_user', $actor->id);
         }
 
@@ -230,9 +230,37 @@ class TurnoCajaService
         ]);
     }
 
+    /**
+     * Sincroniza la venta del turno con el total actual de la orden
+     * (p. ej. tras cancelar productos). Si el total queda en 0, elimina la venta.
+     */
+    public function syncVentaFromOrden(Orden $orden): ?Venta
+    {
+        $venta = Venta::query()->where('orden_id', $orden->id)->first();
+        if (! $venta) {
+            return null;
+        }
+
+        $total = round((float) $orden->total, 2);
+        if ($total <= 0) {
+            $venta->delete();
+
+            return null;
+        }
+
+        $venta->total = $total;
+        $venta->payment_type = $orden->payment_type;
+        $venta->save();
+
+        return $venta->refresh();
+    }
+
     public function listVentas(TurnoCaja $turno, int $perPage = 50): LengthAwarePaginator
     {
+        $this->syncTurnoVentasWithOrdenes($turno);
+
         return $turno->ventas()
+            ->where('tb_ventas.total', '>', 0)
             ->with(['cajera:id,username,sucursal_id', 'orden:id,order_number,customer_name,status,total'])
             ->latest('id')
             ->paginate($perPage);
@@ -399,9 +427,14 @@ class TurnoCajaService
      */
     public function sumVentasByPayment(TurnoCaja $turno): array
     {
+        // Usa el total actual de la orden (si existe) para no contar ventas
+        // ya canceladas/ajustadas cuyo tb_ventas.total quedó desactualizado.
         $rows = $turno->ventas()
-            ->selectRaw('payment_type, SUM(total) as suma')
-            ->groupBy('payment_type')
+            ->leftJoin('ordenes', 'ordenes.id', '=', 'tb_ventas.orden_id')
+            ->selectRaw(
+                'tb_ventas.payment_type, SUM(COALESCE(ordenes.total, tb_ventas.total)) as suma'
+            )
+            ->groupBy('tb_ventas.payment_type')
             ->pluck('suma', 'payment_type');
 
         $efectivo = round((float) ($rows['efectivo'] ?? 0), 2);
@@ -423,6 +456,9 @@ class TurnoCajaService
 
     public function previewCierre(TurnoCaja $turno): array
     {
+        // Corrige ventas desfasadas (órdenes con productos cancelados).
+        $this->syncTurnoVentasWithOrdenes($turno);
+
         $movimientos = $this->totalesMovimientos($turno);
 
         return [
@@ -435,6 +471,22 @@ class TurnoCajaService
             'tramo_actual' => $this->totalesTramoActual($turno),
             'cortes_acumulados' => $this->sumCortes($turno),
         ];
+    }
+
+    /**
+     * Alinea tb_ventas.total con ordenes.total (elimina ventas a $0).
+     */
+    private function syncTurnoVentasWithOrdenes(TurnoCaja $turno): void
+    {
+        $turno->ventas()
+            ->whereNotNull('orden_id')
+            ->with('orden:id,total,payment_type')
+            ->get()
+            ->each(function (Venta $venta): void {
+                if ($venta->orden) {
+                    $this->syncVentaFromOrden($venta->orden);
+                }
+            });
     }
 
     /**
@@ -943,6 +995,18 @@ class TurnoCajaService
         $actor->loadMissing('role');
 
         return (bool) $actor->role?->allows('corteCaja');
+    }
+
+    /**
+     * Puede ver todos los turnos de la sucursal (no solo el propio):
+     * corteCaja (admin) o corteCajaGerenteAdmo (gerencia).
+     */
+    private function staffCanListAllTurnos(Staff $actor): bool
+    {
+        $actor->loadMissing('role');
+
+        return (bool) $actor->role?->allows('corteCaja')
+            || (bool) $actor->role?->allows('corteCajaGerenteAdmo');
     }
 
     /**

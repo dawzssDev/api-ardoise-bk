@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Models\Producto;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -12,6 +13,8 @@ class ProductoResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        $status = (int) $this->status;
+
         return [
             'id' => $this->id,
             'negocio_id' => $this->negocio_id,
@@ -19,11 +22,14 @@ class ProductoResource extends JsonResource
             'categoria' => $this->whenLoaded('categoria', fn () => $this->categoria ? [
                 'id' => $this->categoria->id,
                 'name' => $this->categoria->name,
+                'status' => (int) $this->categoria->status,
             ] : null),
             'name' => $this->name,
             'price' => (string) $this->price,
             'image' => $this->image,
             'image_url' => $this->imageUrl(),
+            'status' => $status,
+            'status_label' => $status === Producto::STATUS_ACTIVO ? 'activo' : 'inactivo',
             'created_by' => $this->whenLoaded('createdBy', fn () => [
                 'id' => $this->createdBy?->id,
                 'name' => $this->createdBy?->name,

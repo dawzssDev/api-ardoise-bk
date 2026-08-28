@@ -117,22 +117,24 @@ class CategoriaProductoController extends Controller
     }
 
     /**
-     * Eliminar una categoría sin productos ligados.
+     * Baja lógica de categoría (status = 0) y de sus productos activos.
      */
     public function destroy(Request $request, int $id): JsonResponse
     {
         try {
             $negocio = $this->categorias->negocioForUser($request->user());
             $categoria = $this->categorias->findForNegocio($negocio, $id);
-            $this->categorias->delete($categoria);
+            $categoria = $this->categorias->delete($categoria);
         } catch (HttpException $e) {
             return $this->errorResponse($e);
         }
 
         return response()->json([
             'success' => true,
-            'message' => 'Categoría eliminada correctamente.',
-            'data' => null,
+            'message' => 'Categoría dada de baja correctamente.',
+            'data' => [
+                'categoria' => (new CategoriaProductoResource($categoria))->resolve(),
+            ],
             'errors' => null,
         ]);
     }

@@ -223,6 +223,110 @@ class OrdenService
     }
 
     /**
+     * Órdenes del día (hoy) de la sucursal: todas + buckets Nuevo / En preparación / Listo.
+     *
+     * @return array{
+     *     fecha: string,
+     *     sucursal: array{id: int, type: string, name: string},
+     *     ordenes: list<Orden>,
+     *     nuevo: list<Orden>,
+     *     en_preparacion: list<Orden>,
+     *     listo: list<Orden>
+     * }
+     */
+    public function listHoy(Negocio $negocio, User|Staff $actor, ?int $sucursalId = null): array
+    {
+        $resolvedSucursalId = $this->resolveSucursalForQuery(
+            $negocio,
+            $actor,
+            $sucursalId,
+            requireForMaestro: true,
+        );
+
+        /** @var \App\Models\Sucursal $sucursal */
+        $sucursal = $negocio->sucursales()->whereKey($resolvedSucursalId)->firstOrFail();
+
+        $ordenes = $negocio->ordenes()
+            ->with($this->ordenRelations())
+            ->where('sucursal_id', $resolvedSucursalId)
+            ->whereDate('created_at', now()->toDateString())
+            ->latest('id')
+            ->get();
+
+        $nuevo = [];
+        $enPreparacion = [];
+        $listo = [];
+
+        foreach ($ordenes as $orden) {
+            $bucket = $this->kitchenBucketForOrden($orden);
+            if ($bucket === 'nuevo') {
+                $nuevo[] = $orden;
+            } elseif ($bucket === 'en_preparacion') {
+                $enPreparacion[] = $orden;
+            } elseif ($bucket === 'listo') {
+                $listo[] = $orden;
+            }
+        }
+
+        return [
+            'fecha' => now()->toDateString(),
+            'sucursal' => [
+                'id' => $sucursal->id,
+                'type' => $sucursal->type,
+                'name' => $sucursal->name,
+            ],
+            'ordenes' => $ordenes->all(),
+            'nuevo' => $nuevo,
+            'en_preparacion' => $enPreparacion,
+            'listo' => $listo,
+        ];
+    }
+
+    /**
+     * Cancela uno o más productos de la orden (status = 5).
+     * El price del detalle pasa a negativo y se recalcula orden.total
+     * sumando solo líneas no canceladas y no diferidas.
+     *
+     * @param  list<int>  $detalleIds
+     */
+    public function cancelarDetalles(Orden $orden, User|Staff $actor, array $detalleIds): Orden
+    {
+        $ids = array_values(array_unique(array_map('intval', $detalleIds)));
+        if ($ids === []) {
+            throw new HttpException(422, 'Debes enviar al menos un detalle para cancelar.');
+        }
+
+        if ((int) $orden->status === Orden::STATUS_CANCELADA) {
+            throw new HttpException(422, 'La orden ya está cancelada.');
+        }
+
+        return DB::transaction(function () use ($orden, $actor, $ids) {
+            $detalles = $orden->detalles()
+                ->whereIn('id', $ids)
+                ->lockForUpdate()
+                ->get();
+
+            if ($detalles->count() !== count($ids)) {
+                throw new HttpException(422, 'Uno o más detalles no pertenecen a esta orden.');
+            }
+
+            foreach ($detalles as $detalle) {
+                $this->aplicarCancelacionDetalle($detalle);
+            }
+
+            $orden->updated_by = $this->auditUserId($actor, $orden->negocio);
+            $this->recalcOrdenTotal($orden);
+            $this->syncOrdenKitchenFromDetalle($orden, $actor, OrdenDetalle::STATUS_CANCELADO);
+            $orden->save();
+
+            // Ajusta/elimina la venta del turno para que el corte no cuente montos cancelados.
+            $this->turnosCaja->syncVentaFromOrden($orden->refresh());
+
+            return $orden->refresh()->load($this->ordenRelations());
+        });
+    }
+
+    /**
      * Resuelve sucursal para listados/cocina.
      * Staff → siempre su sucursal. Maestro → la seleccionada (obligatoria en cocina).
      */
@@ -336,7 +440,25 @@ class OrdenService
             throw new HttpException(422, 'Estatus de detalle inválido.');
         }
 
+        if ($status === OrdenDetalle::STATUS_CANCELADO) {
+            $this->cancelarDetalles($orden, $actor, [$detalleId]);
+
+            return $orden->detalles()
+                ->whereKey($detalleId)
+                ->with([
+                    'producto:id,negocio_id,name,price',
+                    'advancedByStaff:'.self::STAFF_WITH,
+                    'finishedByStaff:'.self::STAFF_WITH,
+                ])
+                ->firstOrFail();
+        }
+
         $detalle = $orden->detalles()->whereKey($detalleId)->firstOrFail();
+
+        if ((int) $detalle->status === OrdenDetalle::STATUS_CANCELADO) {
+            throw new HttpException(422, 'No puedes cambiar el estatus de un producto cancelado.');
+        }
+
         $detalle->status = $status;
         $this->applyDetalleStaffTracking($detalle, $actor, $status);
         $detalle->save();
@@ -350,6 +472,38 @@ class OrdenService
             'advancedByStaff:'.self::STAFF_WITH,
             'finishedByStaff:'.self::STAFF_WITH,
         ]);
+    }
+
+    private function aplicarCancelacionDetalle(OrdenDetalle $detalle): void
+    {
+        if ((int) $detalle->status === OrdenDetalle::STATUS_CANCELADO) {
+            throw new HttpException(
+                422,
+                "El detalle #{$detalle->id} ({$detalle->product_name}) ya está cancelado.",
+            );
+        }
+
+        $unitPrice = abs((float) $detalle->price);
+        $detalle->price = round(-$unitPrice, 2);
+        $detalle->status = OrdenDetalle::STATUS_CANCELADO;
+        $detalle->save();
+    }
+
+    /**
+     * Total cobrable: suma quantity * price de líneas no canceladas y no diferidas.
+     * Los cancelados quedan con price negativo para historial, pero no entran al total.
+     */
+    private function recalcOrdenTotal(Orden $orden): void
+    {
+        $total = (float) $orden->detalles()
+            ->where('status', '!=', OrdenDetalle::STATUS_CANCELADO)
+            ->where(function ($q) {
+                $q->where('diferido', false)->orWhereNull('diferido');
+            })
+            ->get()
+            ->sum(fn (OrdenDetalle $d) => (float) $d->quantity * (float) $d->price);
+
+        $orden->total = round(max(0, $total), 2);
     }
 
     /**
@@ -449,12 +603,14 @@ class OrdenService
         if (! in_array($detalleStatus, [
             OrdenDetalle::STATUS_LISTO,
             OrdenDetalle::STATUS_ENTREGADO,
+            OrdenDetalle::STATUS_CANCELADO,
         ], true)) {
             return;
         }
 
         // Primer producto listo sin haber entrado a preparación a nivel orden.
-        if ($orden->preparacion_started_at === null
+        if ($detalleStatus !== OrdenDetalle::STATUS_CANCELADO
+            && $orden->preparacion_started_at === null
             && (int) $orden->status === Orden::STATUS_PAGADA) {
             $previous = (int) $orden->status;
             $orden->status = Orden::STATUS_EN_COCINA;
@@ -472,6 +628,15 @@ class OrdenService
         if (! $pending && (int) $orden->status !== Orden::STATUS_LISTA
             && (int) $orden->status !== Orden::STATUS_ENTREGADA
             && (int) $orden->status !== Orden::STATUS_CANCELADA) {
+            $hasActive = $orden->detalles()
+                ->where('status', '!=', OrdenDetalle::STATUS_CANCELADO)
+                ->exists();
+
+            // Si cancelaron todos los productos, no marcar lista; solo recalcular kitchen.
+            if (! $hasActive) {
+                return;
+            }
+
             $previous = (int) $orden->status;
             $orden->status = Orden::STATUS_LISTA;
             $this->applyOrdenKitchenProgress($orden, $actor, $previous, Orden::STATUS_LISTA);

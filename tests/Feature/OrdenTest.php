@@ -387,6 +387,125 @@ class OrdenTest extends TestCase
             ->assertJsonPath('message', 'El producto Esquite chico no está disponible en esta sucursal.');
     }
 
+    public function test_hoy_returns_todays_ordenes_grouped(): void
+    {
+        [$user, $negocio, $sucursal, $esquite] = $this->seedPosCatalog();
+
+        Sanctum::actingAs($user);
+        $this->abrirCaja($sucursal->id, 50);
+
+        $ordenId = $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Hoy',
+            'sucursal_id' => $sucursal->id,
+            'tipo_pago' => 'efectivo',
+            'detalles' => [
+                ['producto_id' => $esquite->id, 'cantidad' => 1, 'precio' => 50],
+            ],
+        ])->assertCreated()->json('data.orden.id');
+
+        $this->getJson('/api/ordenes/hoy?sucursal_id='.$sucursal->id)
+            ->assertOk()
+            ->assertJsonPath('data.fecha', now()->toDateString())
+            ->assertJsonPath('data.sucursal.id', $sucursal->id)
+            ->assertJsonPath('data.ordenes.0.id', $ordenId)
+            ->assertJsonPath('data.nuevo.0.id', $ordenId);
+    }
+
+    public function test_can_cancel_detalle_negates_price_and_recalculates_orden_total(): void
+    {
+        [$user, $negocio, $sucursal, $esquite, $ramen] = $this->seedPosCatalog();
+
+        Sanctum::actingAs($user);
+        $this->abrirCaja($sucursal->id, 100);
+
+        $orden = $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Cancelar producto',
+            'sucursal_id' => $sucursal->id,
+            'tipo_pago' => 'efectivo',
+            'detalles' => [
+                ['producto_id' => $esquite->id, 'cantidad' => 1, 'precio' => 100],
+                ['producto_id' => $ramen->id, 'cantidad' => 1, 'precio' => 100],
+                ['producto_id' => $esquite->id, 'cantidad' => 1, 'precio' => 100],
+            ],
+        ])->assertCreated();
+
+        $ordenId = $orden->json('data.orden.id');
+        $this->assertSame('300.00', $orden->json('data.orden.total'));
+
+        $detalleCancelar = collect($orden->json('data.orden.detalles'))
+            ->firstWhere('producto_id', $ramen->id)['id'];
+
+        $this->postJson("/api/ordenes/{$ordenId}/detalles/cancelar", [
+            'detalle_ids' => [$detalleCancelar],
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.orden.total', '200.00');
+
+        $this->assertDatabaseHas('orden_detalles', [
+            'id' => $detalleCancelar,
+            'status' => OrdenDetalle::STATUS_CANCELADO,
+            'price' => -100.00,
+        ]);
+
+        $this->assertDatabaseHas('ordenes', [
+            'id' => $ordenId,
+            'total' => 200.00,
+        ]);
+
+        $this->assertDatabaseHas('tb_ventas', [
+            'orden_id' => $ordenId,
+            'total' => 200.00,
+        ]);
+    }
+
+    public function test_cancel_all_detalles_removes_venta_from_turno_corte(): void
+    {
+        [$user, $negocio, $sucursal, $esquite] = $this->seedPosCatalog();
+
+        Sanctum::actingAs($user);
+        $open = $this->postJson('/api/turnos-caja/abrir', [
+            'sucursal_id' => $sucursal->id,
+            'fondo_inicial' => 100,
+        ])->assertCreated();
+        $turnoId = $open->json('data.turno.id');
+
+        $orden = $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Todo cancelado',
+            'sucursal_id' => $sucursal->id,
+            'tipo_pago' => 'efectivo',
+            'detalles' => [
+                ['producto_id' => $esquite->id, 'cantidad' => 1, 'precio' => 179],
+            ],
+        ])->assertCreated();
+
+        $ordenId = $orden->json('data.orden.id');
+        $detalleId = $orden->json('data.orden.detalles.0.id');
+
+        $this->assertDatabaseHas('tb_ventas', [
+            'orden_id' => $ordenId,
+            'total' => 179.00,
+        ]);
+
+        $this->getJson("/api/turnos-caja/{$turnoId}/preview")
+            ->assertOk()
+            ->assertJsonPath('data.preview.total_ventas_efectivo', 179);
+
+        $this->postJson("/api/ordenes/{$ordenId}/detalles/cancelar", [
+            'detalle_ids' => [$detalleId],
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.orden.total', '0.00');
+
+        $this->assertDatabaseMissing('tb_ventas', [
+            'orden_id' => $ordenId,
+        ]);
+
+        $this->getJson("/api/turnos-caja/{$turnoId}/preview")
+            ->assertOk()
+            ->assertJsonPath('data.preview.total_ventas_efectivo', 0)
+            ->assertJsonPath('data.preview.total_ventas', 0);
+    }
+
     private function abrirCaja(?int $sucursalId = null, float $fondo = 0): void
     {
         $payload = ['fondo_inicial' => $fondo];

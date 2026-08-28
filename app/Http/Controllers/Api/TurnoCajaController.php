@@ -26,7 +26,7 @@ class TurnoCajaController extends Controller
     {
         try {
             $negocio = $this->turnos->negocioForUser($request->user());
-            $sucursalId = $request->filled('sucursal_id') ? (int) $request->integer('sucursal_id') : null;
+            $sucursalId = $this->requestSucursalId($request);
             $paginator = $this->turnos->listForNegocio(
                 $negocio,
                 $request->user(),
@@ -308,6 +308,17 @@ class TurnoCajaController extends Controller
             ],
             'errors' => null,
         ], 201);
+    }
+
+    private function requestSucursalId(Request $request): ?int
+    {
+        foreach (['sucursal_id', 'sucursalId', 'SucursaliD', 'id_sucursal'] as $key) {
+            if ($request->filled($key)) {
+                return (int) $request->input($key);
+            }
+        }
+
+        return null;
     }
 
     private function errorResponse(HttpException $e): JsonResponse

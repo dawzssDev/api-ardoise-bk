@@ -10,10 +10,27 @@ class CategoriaProducto extends Model
 {
     protected $table = 'categoria_productos';
 
+    public const STATUS_INACTIVO = 0;
+
+    public const STATUS_ACTIVO = 1;
+
     protected $fillable = [
         'negocio_id',
         'name',
+        'status',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'status' => 'integer',
+        ];
+    }
+
+    public function isActivo(): bool
+    {
+        return (int) $this->status === self::STATUS_ACTIVO;
+    }
 
     public function negocio(): BelongsTo
     {

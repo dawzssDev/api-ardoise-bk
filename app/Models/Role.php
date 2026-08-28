@@ -36,6 +36,7 @@ class Role extends Model
         'levantarOrden',
         'corteCajaGerenteAdmo',
         'cuentasContables',
+        'cancelarDetalles',
     ];
 
     /**
@@ -62,6 +63,7 @@ class Role extends Model
         'levantar_orden' => 'levantarOrden',
         'stock_productos' => 'stock_products',
         'cuentas_contables' => 'cuentasContables',
+        'cancelar_detalles' => 'cancelarDetalles',
     ];
 
     protected $fillable = [

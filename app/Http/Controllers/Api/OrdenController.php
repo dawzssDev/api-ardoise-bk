@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Orden\CancelarOrdenDetallesRequest;
 use App\Http\Requests\Orden\CreateOrdenRequest;
 use App\Http\Requests\Orden\UpdateOrdenDetalleStatusRequest;
 use App\Http\Requests\Orden\UpdateOrdenStatusRequest;
@@ -82,6 +83,45 @@ class OrdenController extends Controller
                 'en_preparacion' => $enPreparacion,
                 'listo' => $listo,
                 // aliases front
+                'activos' => $nuevo,
+                'en_proceso' => $enPreparacion,
+                'finalizados' => $listo,
+            ],
+            'errors' => null,
+        ]);
+    }
+
+    /**
+     * Órdenes de hoy de la sucursal (todas + buckets Nuevo / En preparación / Listo).
+     * Maestro: ?sucursal_id= requerido. Staff: usa su sucursal.
+     */
+    public function hoy(Request $request): JsonResponse
+    {
+        try {
+            $negocio = $this->ordenes->negocioForUser($request->user());
+            $payload = $this->ordenes->listHoy(
+                $negocio,
+                $request->user(),
+                $this->requestSucursalId($request),
+            );
+        } catch (HttpException $e) {
+            return $this->errorResponse($e);
+        }
+
+        $nuevo = OrdenResource::collection($payload['nuevo'])->resolve();
+        $enPreparacion = OrdenResource::collection($payload['en_preparacion'])->resolve();
+        $listo = OrdenResource::collection($payload['listo'])->resolve();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'ok',
+            'data' => [
+                'fecha' => $payload['fecha'],
+                'sucursal' => $payload['sucursal'],
+                'ordenes' => OrdenResource::collection($payload['ordenes'])->resolve(),
+                'nuevo' => $nuevo,
+                'en_preparacion' => $enPreparacion,
+                'listo' => $listo,
                 'activos' => $nuevo,
                 'en_proceso' => $enPreparacion,
                 'finalizados' => $listo,
@@ -178,6 +218,34 @@ class OrdenController extends Controller
             'message' => 'Estatus de detalle actualizado.',
             'data' => [
                 'detalle' => (new OrdenDetalleResource($detalle))->resolve(),
+            ],
+            'errors' => null,
+        ]);
+    }
+
+    /**
+     * Cancelar uno o más productos de la orden (status detalle = 5).
+     * El price del detalle queda negativo y se recalcula el total de la orden.
+     */
+    public function cancelarDetalles(CancelarOrdenDetallesRequest $request, int $id): JsonResponse
+    {
+        try {
+            $negocio = $this->ordenes->negocioForUser($request->user());
+            $orden = $this->ordenes->findForNegocio($negocio, $id);
+            $orden = $this->ordenes->cancelarDetalles(
+                $orden,
+                $request->user(),
+                $request->validated('detalle_ids'),
+            );
+        } catch (HttpException $e) {
+            return $this->errorResponse($e);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Producto(s) cancelado(s) correctamente.',
+            'data' => [
+                'orden' => (new OrdenResource($orden))->resolve(),
             ],
             'errors' => null,
         ]);

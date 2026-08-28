@@ -10,12 +10,17 @@ class Producto extends Model
 {
     protected $table = 'productos';
 
+    public const STATUS_INACTIVO = 0;
+
+    public const STATUS_ACTIVO = 1;
+
     protected $fillable = [
         'negocio_id',
         'categoria_producto_id',
         'name',
         'price',
         'image',
+        'status',
         'created_by',
         'updated_by',
     ];
@@ -24,7 +29,13 @@ class Producto extends Model
     {
         return [
             'price' => 'decimal:2',
+            'status' => 'integer',
         ];
+    }
+
+    public function isActivo(): bool
+    {
+        return (int) $this->status === self::STATUS_ACTIVO;
     }
 
     public function negocio(): BelongsTo
@@ -50,6 +61,11 @@ class Producto extends Model
     public function stocks(): HasMany
     {
         return $this->hasMany(StockProducto::class);
+    }
+
+    public function ordenDetalles(): HasMany
+    {
+        return $this->hasMany(OrdenDetalle::class, 'producto_id');
     }
 
     public function imageUrl(): ?string

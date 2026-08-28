@@ -132,6 +132,100 @@ class CuentaPorCobrarTest extends TestCase
             'pagado_por' => $user->id,
             'nota' => 'Descontado quincena',
         ]);
+
+        $this->getJson('/api/cuentas-por-cobrar/pagadas?sucursal_id='.$sucursal->id)
+            ->assertOk()
+            ->assertJsonPath('data.sucursal_id', $sucursal->id)
+            ->assertJsonPath('data.status', 'pagado')
+            ->assertJsonPath('data.total_pagado', '70.00')
+            ->assertJsonPath('data.cantidad', 1)
+            ->assertJsonPath('data.empleados.0.empleado_id', $empleado->id)
+            ->assertJsonPath('data.empleados.0.empleado', 'Ana Pérez')
+            ->assertJsonPath('data.empleados.0.total_pagado', '70.00')
+            ->assertJsonPath('data.empleados.0.cantidad', 1)
+            ->assertJsonPath('data.empleados.0.cuentas.0.id', $cuentaId)
+            ->assertJsonPath('data.empleados.0.cuentas.0.status', 'pagado');
+    }
+
+    public function test_staff_lists_pagadas_grouped_by_empleado_of_own_sucursal(): void
+    {
+        [$user, $negocio, $sucursal, , $ramen, $empleado] = $this->seedCatalogWithEmpleado();
+
+        $consumo = $negocio->tiposVenta()->create([
+            'name' => 'Consumo colaborador',
+            'tipo_descuento' => TipoVenta::TIPO_NINGUNO,
+            'diferir_cobro' => true,
+            'requiere_empleado' => true,
+            'status' => true,
+        ]);
+
+        Sanctum::actingAs($user);
+        $this->postJson('/api/turnos-caja/abrir', [
+            'sucursal_id' => $sucursal->id,
+            'fondo_inicial' => 50,
+        ])->assertCreated();
+
+        $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Colaborador',
+            'sucursal_id' => $sucursal->id,
+            'tipo_pago' => 'efectivo',
+            'detalles' => [[
+                'producto_id' => $ramen->id,
+                'cantidad' => 1,
+                'tipo_venta_id' => $consumo->id,
+                'empleado_id' => $empleado->id,
+            ]],
+        ])->assertCreated();
+
+        $cuentaId = $this->getJson('/api/cuentas-por-cobrar?status=pendiente')
+            ->json('data.cuentas.0.id');
+
+        $this->postJson('/api/cuentas-por-cobrar/'.$cuentaId.'/pagar')->assertOk();
+
+        $permissions = Role::defaultPermissions();
+        $permissions['cuentas_por_cobrar'] = true;
+
+        $role = $negocio->roles()->create([
+            'name' => 'Admin nómina',
+            'permissions' => $permissions,
+            'status' => true,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        $empleadoStaff = $negocio->empleados()->create([
+            'sucursal_id' => $sucursal->id,
+            'role_id' => $role->id,
+            'first_name' => 'Luis',
+            'paternal_surname' => 'Staff',
+            'employee_number' => 'EMP-STAFF-PAG',
+            'status' => 'activo',
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        $staff = $negocio->staff()->create([
+            'username' => 'luis.pagadas',
+            'password' => 'secreto123',
+            'sucursal_id' => $sucursal->id,
+            'role_id' => $role->id,
+            'empleado_id' => $empleadoStaff->id,
+            'status' => true,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        Sanctum::actingAs($staff);
+        $this->getJson('/api/cuentas-por-cobrar/pagadas')
+            ->assertOk()
+            ->assertJsonPath('data.sucursal_id', $sucursal->id)
+            ->assertJsonPath('data.empleados.0.empleado_id', $empleado->id)
+            ->assertJsonPath('data.empleados.0.cuentas.0.id', $cuentaId);
+
+        $this->getJson('/api/cuentas-por-cobrar/pagadas?empleado_id='.$empleado->id)
+            ->assertOk()
+            ->assertJsonPath('data.cantidad', 1)
+            ->assertJsonPath('data.empleados.0.empleado_id', $empleado->id);
     }
 
     public function test_empleado_id_is_persisted_even_when_tipo_venta_does_not_require_it(): void
@@ -199,6 +293,165 @@ class CuentaPorCobrarTest extends TestCase
         ])
             ->assertStatus(422)
             ->assertJsonPath('success', false);
+    }
+
+    public function test_staff_with_cuentas_por_cobrar_can_pagar_lote(): void
+    {
+        [$user, $negocio, $sucursal, , $ramen, $empleado] = $this->seedCatalogWithEmpleado();
+
+        $consumo = $negocio->tiposVenta()->create([
+            'name' => 'Consumo colaborador',
+            'tipo_descuento' => TipoVenta::TIPO_NINGUNO,
+            'diferir_cobro' => true,
+            'requiere_empleado' => true,
+            'status' => true,
+        ]);
+
+        Sanctum::actingAs($user);
+        $this->postJson('/api/turnos-caja/abrir', [
+            'sucursal_id' => $sucursal->id,
+            'fondo_inicial' => 50,
+        ])->assertCreated();
+
+        $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Colaborador',
+            'sucursal_id' => $sucursal->id,
+            'tipo_pago' => 'efectivo',
+            'detalles' => [[
+                'producto_id' => $ramen->id,
+                'cantidad' => 1,
+                'tipo_venta_id' => $consumo->id,
+                'empleado_id' => $empleado->id,
+            ]],
+        ])->assertCreated();
+
+        $cuentaId = $this->getJson('/api/cuentas-por-cobrar?status=pendiente')
+            ->assertOk()
+            ->json('data.cuentas.0.id');
+
+        $permissions = Role::defaultPermissions();
+        $permissions['cuentas_por_cobrar'] = true;
+
+        $role = $negocio->roles()->create([
+            'name' => 'Admin nómina',
+            'permissions' => $permissions,
+            'status' => true,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        $empleadoStaff = $negocio->empleados()->create([
+            'sucursal_id' => $sucursal->id,
+            'role_id' => $role->id,
+            'first_name' => 'Luis',
+            'paternal_surname' => 'Admin',
+            'employee_number' => 'EMP-ADM',
+            'status' => 'activo',
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        $staff = $negocio->staff()->create([
+            'username' => 'luis.admin',
+            'password' => 'secreto123',
+            'sucursal_id' => $sucursal->id,
+            'role_id' => $role->id,
+            'empleado_id' => $empleadoStaff->id,
+            'status' => true,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        Sanctum::actingAs($staff);
+        $this->postJson('/api/cuentas-por-cobrar/pagar-lote', [
+            'ids' => [$cuentaId],
+            'nota' => 'Liquidado por staff',
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.cuentas.0.status', 'pagado')
+            ->assertJsonPath('data.cuentas.0.pagado_por', $user->id);
+
+        $this->assertDatabaseHas('tb_cuentas_por_cobrar', [
+            'id' => $cuentaId,
+            'status' => CuentaPorCobrar::STATUS_PAGADO,
+            'pagado_por' => $user->id,
+            'nota' => 'Liquidado por staff',
+        ]);
+    }
+
+    public function test_staff_without_cuentas_por_cobrar_cannot_pagar(): void
+    {
+        [$user, $negocio, $sucursal, , $ramen, $empleado] = $this->seedCatalogWithEmpleado();
+
+        $consumo = $negocio->tiposVenta()->create([
+            'name' => 'Consumo colaborador',
+            'tipo_descuento' => TipoVenta::TIPO_NINGUNO,
+            'diferir_cobro' => true,
+            'requiere_empleado' => true,
+            'status' => true,
+        ]);
+
+        Sanctum::actingAs($user);
+        $this->postJson('/api/turnos-caja/abrir', [
+            'sucursal_id' => $sucursal->id,
+            'fondo_inicial' => 50,
+        ])->assertCreated();
+
+        $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Colaborador',
+            'sucursal_id' => $sucursal->id,
+            'tipo_pago' => 'efectivo',
+            'detalles' => [[
+                'producto_id' => $ramen->id,
+                'cantidad' => 1,
+                'tipo_venta_id' => $consumo->id,
+                'empleado_id' => $empleado->id,
+            ]],
+        ])->assertCreated();
+
+        $cuentaId = $this->getJson('/api/cuentas-por-cobrar?status=pendiente')
+            ->json('data.cuentas.0.id');
+
+        $role = $negocio->roles()->create([
+            'name' => 'Sin permiso',
+            'permissions' => Role::defaultPermissions(),
+            'status' => true,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        $empleadoStaff = $negocio->empleados()->create([
+            'sucursal_id' => $sucursal->id,
+            'role_id' => $role->id,
+            'first_name' => 'Sin',
+            'paternal_surname' => 'Permiso',
+            'employee_number' => 'EMP-NOP',
+            'status' => 'activo',
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        $staff = $negocio->staff()->create([
+            'username' => 'sin.permiso',
+            'password' => 'secreto123',
+            'sucursal_id' => $sucursal->id,
+            'role_id' => $role->id,
+            'empleado_id' => $empleadoStaff->id,
+            'status' => true,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        Sanctum::actingAs($staff);
+        $this->postJson('/api/cuentas-por-cobrar/pagar-lote', [
+            'ids' => [$cuentaId],
+        ])
+            ->assertForbidden()
+            ->assertJsonPath('message', 'No tienes permiso para marcar cuentas por cobrar como pagadas.');
+
+        $this->postJson('/api/cuentas-por-cobrar/'.$cuentaId.'/pagar')
+            ->assertForbidden()
+            ->assertJsonPath('message', 'No tienes permiso para marcar cuentas por cobrar como pagadas.');
     }
 
     /**

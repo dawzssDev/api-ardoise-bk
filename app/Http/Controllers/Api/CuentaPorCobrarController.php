@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\CuentaPorCobrar\PagarCuentaPorCobrarRequest;
 use App\Http\Requests\CuentaPorCobrar\PagarLoteCuentaPorCobrarRequest;
 use App\Http\Resources\CuentaPorCobrarResource;
-use App\Models\User;
 use App\Services\CuentaPorCobrarService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -73,18 +72,59 @@ class CuentaPorCobrarController extends Controller
     }
 
     /**
-     * Marcar una cuenta como pagada (descuento en nómina). Solo maestro.
+     * Cuentas pagadas de la sucursal, agrupadas por empleado.
+     * Staff: usa su sucursal. Maestro: requiere sucursal_id.
+     */
+    public function pagadas(Request $request): JsonResponse
+    {
+        try {
+            $actor = $request->user();
+            $negocio = $this->cuentas->negocioForUser($actor);
+            $sucursalId = $this->requestSucursalId($request);
+            $empleadoId = $request->filled('empleado_id') || $request->filled('empleadoId')
+                ? (int) $request->input('empleado_id', $request->input('empleadoId'))
+                : null;
+
+            $payload = $this->cuentas->listPagadasBySucursal(
+                $negocio,
+                $actor,
+                $sucursalId,
+                $empleadoId,
+            );
+        } catch (HttpException $e) {
+            return $this->errorResponse($e);
+        }
+
+        $empleados = array_map(static function (array $grupo): array {
+            $grupo['cuentas'] = CuentaPorCobrarResource::collection($grupo['cuentas'])->resolve();
+
+            return $grupo;
+        }, $payload['empleados']);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'ok',
+            'data' => [
+                'sucursal_id' => $payload['sucursal_id'],
+                'status' => $payload['status'],
+                'total_pagado' => $payload['total_pagado'],
+                'cantidad' => $payload['cantidad'],
+                'empleados' => $empleados,
+            ],
+            'errors' => null,
+        ]);
+    }
+
+    /**
+     * Marcar una cuenta como pagada (descuento en nómina).
+     * Usuario maestro o staff con permiso cuentas_por_cobrar.
      */
     public function pagar(PagarCuentaPorCobrarRequest $request, int $id): JsonResponse
     {
-        $user = $request->user();
-        if (! $user instanceof User) {
-            return $this->errorResponse(new HttpException(403, 'Solo el dueño puede marcar cuentas como pagadas.'));
-        }
-
         try {
-            $negocio = $this->cuentas->negocioForUser($user);
-            $cuenta = $this->cuentas->pagar($negocio, $user, $id, $request->validated());
+            $actor = $request->user();
+            $negocio = $this->cuentas->negocioForUser($actor);
+            $cuenta = $this->cuentas->pagar($negocio, $actor, $id, $request->validated());
         } catch (HttpException $e) {
             return $this->errorResponse($e);
         }
@@ -100,18 +140,15 @@ class CuentaPorCobrarController extends Controller
     }
 
     /**
-     * Marcar varias cuentas como pagadas en lote. Solo maestro.
+     * Marcar varias cuentas como pagadas en lote.
+     * Usuario maestro o staff con permiso cuentas_por_cobrar.
      */
     public function pagarLote(PagarLoteCuentaPorCobrarRequest $request): JsonResponse
     {
-        $user = $request->user();
-        if (! $user instanceof User) {
-            return $this->errorResponse(new HttpException(403, 'Solo el dueño puede marcar cuentas como pagadas.'));
-        }
-
         try {
-            $negocio = $this->cuentas->negocioForUser($user);
-            $cuentas = $this->cuentas->pagarLote($negocio, $user, $request->validated());
+            $actor = $request->user();
+            $negocio = $this->cuentas->negocioForUser($actor);
+            $cuentas = $this->cuentas->pagarLote($negocio, $actor, $request->validated());
         } catch (HttpException $e) {
             return $this->errorResponse($e);
         }
@@ -124,6 +161,17 @@ class CuentaPorCobrarController extends Controller
             ],
             'errors' => null,
         ]);
+    }
+
+    private function requestSucursalId(Request $request): ?int
+    {
+        foreach (['sucursal_id', 'sucursalId', 'SucursaliD', 'id_sucursal'] as $key) {
+            if ($request->filled($key)) {
+                return (int) $request->input($key);
+            }
+        }
+
+        return null;
     }
 
     private function errorResponse(HttpException $e): JsonResponse

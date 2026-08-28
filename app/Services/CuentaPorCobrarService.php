@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Models\CuentaPorCobrar;
 use App\Models\Negocio;
+use App\Models\Staff;
+use App\Models\Sucursal;
 use App\Models\User;
 use App\Services\Concerns\ResolvesNegocioFromActor;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -91,10 +93,87 @@ class CuentaPorCobrarService
     }
 
     /**
+     * Cuentas pagadas de una sucursal, agrupadas por empleado.
+     *
+     * Staff: usa su sucursal. Maestro: debe enviar sucursal_id.
+     *
+     * @return array{
+     *     sucursal_id: int,
+     *     status: string,
+     *     total_pagado: string,
+     *     cantidad: int,
+     *     empleados: list<array{
+     *         empleado_id: int,
+     *         empleado: string,
+     *         total_pagado: string,
+     *         cantidad: int,
+     *         cuentas: list<CuentaPorCobrar>
+     *     }>
+     * }
+     */
+    public function listPagadasBySucursal(
+        Negocio $negocio,
+        User|Staff $actor,
+        ?int $sucursalId = null,
+        ?int $empleadoId = null,
+    ): array {
+        $sucursalId = $this->resolveSucursalIdForList($negocio, $actor, $sucursalId);
+
+        $query = $negocio->cuentasPorCobrar()
+            ->with([
+                'empleado:id,negocio_id,first_name,paternal_surname,maternal_surname',
+                'sucursal:id,negocio_id,name,type',
+                'orden:id,negocio_id,sucursal_id,order_number',
+            ])
+            ->where('sucursal_id', $sucursalId)
+            ->where('status', CuentaPorCobrar::STATUS_PAGADO)
+            ->latest('fecha_pagado')
+            ->latest('id');
+
+        if ($empleadoId !== null && $empleadoId > 0) {
+            $query->where('empleado_id', $empleadoId);
+        }
+
+        $cuentas = $query->get();
+
+        $empleados = $cuentas
+            ->groupBy('empleado_id')
+            ->map(function ($group, $empleadoKey) {
+                /** @var \Illuminate\Support\Collection<int, CuentaPorCobrar> $group */
+                $first = $group->first();
+                $nombre = $first?->empleado?->fullName() ?? '';
+                $total = round((float) $group->sum('monto'), 2);
+
+                return [
+                    'empleado_id' => (int) $empleadoKey,
+                    'empleado' => $nombre,
+                    'total_pagado' => number_format($total, 2, '.', ''),
+                    'cantidad' => $group->count(),
+                    'cuentas' => $group->values()->all(),
+                ];
+            })
+            ->sortBy('empleado', SORT_NATURAL | SORT_FLAG_CASE)
+            ->values()
+            ->all();
+
+        $totalPagado = round((float) $cuentas->sum('monto'), 2);
+
+        return [
+            'sucursal_id' => $sucursalId,
+            'status' => CuentaPorCobrar::STATUS_PAGADO,
+            'total_pagado' => number_format($totalPagado, 2, '.', ''),
+            'cantidad' => $cuentas->count(),
+            'empleados' => $empleados,
+        ];
+    }
+
+    /**
      * @param  array{nota?: string|null}  $data
      */
-    public function pagar(Negocio $negocio, User $actor, int $id, array $data = []): CuentaPorCobrar
+    public function pagar(Negocio $negocio, User|Staff $actor, int $id, array $data = []): CuentaPorCobrar
     {
+        $this->assertCanPagar($actor, $negocio);
+
         $cuenta = $this->findForNegocio($negocio, $id);
 
         if ($cuenta->status === CuentaPorCobrar::STATUS_PAGADO) {
@@ -104,7 +183,7 @@ class CuentaPorCobrarService
         $cuenta->fill([
             'status' => CuentaPorCobrar::STATUS_PAGADO,
             'fecha_pagado' => now(),
-            'pagado_por' => $actor->id,
+            'pagado_por' => $this->auditUserId($actor, $negocio),
             'nota' => $data['nota'] ?? $cuenta->nota,
         ]);
         $cuenta->save();
@@ -120,8 +199,10 @@ class CuentaPorCobrarService
      * @param  array{ids: list<int>, nota?: string|null}  $data
      * @return list<CuentaPorCobrar>
      */
-    public function pagarLote(Negocio $negocio, User $actor, array $data): array
+    public function pagarLote(Negocio $negocio, User|Staff $actor, array $data): array
     {
+        $this->assertCanPagar($actor, $negocio);
+
         $ids = array_values(array_unique(array_map('intval', $data['ids'])));
 
         if ($ids === []) {
@@ -148,12 +229,13 @@ class CuentaPorCobrarService
 
             $now = now();
             $nota = $data['nota'] ?? null;
+            $pagadoPor = $this->auditUserId($actor, $negocio);
 
             foreach ($cuentas as $cuenta) {
                 $cuenta->fill([
                     'status' => CuentaPorCobrar::STATUS_PAGADO,
                     'fecha_pagado' => $now,
-                    'pagado_por' => $actor->id,
+                    'pagado_por' => $pagadoPor,
                     'nota' => $nota ?? $cuenta->nota,
                 ]);
                 $cuenta->save();
@@ -169,5 +251,57 @@ class CuentaPorCobrarService
                 ->get()
                 ->all();
         });
+    }
+
+    /**
+     * Dueño siempre puede. Staff requiere permiso cuentas_por_cobrar.
+     */
+    private function assertCanPagar(User|Staff $actor, Negocio $negocio): void
+    {
+        if ($actor instanceof User) {
+            if ((int) ($actor->negocio?->id ?? 0) !== (int) $negocio->id) {
+                throw new HttpException(403, 'No puedes marcar cuentas de otro negocio.');
+            }
+
+            return;
+        }
+
+        $actor->loadMissing('role');
+
+        if ((int) $actor->negocio_id !== (int) $negocio->id) {
+            throw new HttpException(403, 'No puedes marcar cuentas de otro negocio.');
+        }
+
+        if (! $actor->role?->allows('cuentas_por_cobrar')) {
+            throw new HttpException(403, 'No tienes permiso para marcar cuentas por cobrar como pagadas.');
+        }
+    }
+
+    private function resolveSucursalIdForList(Negocio $negocio, User|Staff $actor, ?int $sucursalId): int
+    {
+        if ($actor instanceof Staff) {
+            $id = (int) $actor->sucursal_id;
+            if ($id < 1) {
+                throw new HttpException(422, 'El usuario staff no tiene una sucursal asignada.');
+            }
+
+            return $id;
+        }
+
+        $id = (int) $sucursalId;
+        if ($id < 1) {
+            throw new HttpException(422, 'La sucursal es obligatoria para listar cuentas pagadas.');
+        }
+
+        $exists = Sucursal::query()
+            ->where('negocio_id', $negocio->id)
+            ->whereKey($id)
+            ->exists();
+
+        if (! $exists) {
+            throw new HttpException(422, 'La sucursal no existe o no pertenece a tu negocio.');
+        }
+
+        return $id;
     }
 }

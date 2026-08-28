@@ -2,6 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Models\CategoriaProducto;
+use App\Models\Producto;
+use App\Models\Sucursal;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -23,7 +26,10 @@ class ProductoTest extends TestCase
             'phone' => '6670000000',
             'needs_invoice' => false,
         ]);
-        $categoria = $negocio->categoriaProductos()->create(['name' => 'Bebidas']);
+        $categoria = $negocio->categoriaProductos()->create([
+            'name' => 'Bebidas',
+            'status' => CategoriaProducto::STATUS_ACTIVO,
+        ]);
 
         Sanctum::actingAs($user);
 
@@ -40,6 +46,7 @@ class ProductoTest extends TestCase
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.producto.name', 'Refresco 600ml')
             ->assertJsonPath('data.producto.price', '25.50')
+            ->assertJsonPath('data.producto.status', Producto::STATUS_ACTIVO)
             ->assertJsonPath('data.producto.categoria.name', 'Bebidas');
 
         $imagePath = $response->json('data.producto.image');
@@ -55,7 +62,157 @@ class ProductoTest extends TestCase
             'negocio_id' => $negocio->id,
             'categoria_producto_id' => $categoria->id,
             'name' => 'Refresco 600ml',
+            'status' => Producto::STATUS_ACTIVO,
             'created_by' => $user->id,
         ]);
+    }
+
+    public function test_delete_producto_sets_status_inactive_even_with_orden(): void
+    {
+        $user = User::factory()->create();
+        $negocio = $user->negocio()->create([
+            'name' => 'Negocio Test',
+            'phone' => '6670000000',
+            'needs_invoice' => false,
+        ]);
+        $sucursal = $negocio->sucursales()->create([
+            'type' => Sucursal::TYPE_SUCURSAL,
+            'name' => 'Centro',
+            'is_active' => true,
+        ]);
+        $categoria = $negocio->categoriaProductos()->create([
+            'name' => 'Ramen',
+            'status' => CategoriaProducto::STATUS_ACTIVO,
+        ]);
+        $producto = $negocio->productos()->create([
+            'categoria_producto_id' => $categoria->id,
+            'name' => 'Ramen rosa',
+            'price' => 70,
+            'status' => Producto::STATUS_ACTIVO,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        Sanctum::actingAs($user);
+        $this->postJson('/api/turnos-caja/abrir', [
+            'sucursal_id' => $sucursal->id,
+            'fondo_inicial' => 10,
+        ])->assertCreated();
+
+        $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Mesa 1',
+            'sucursal_id' => $sucursal->id,
+            'tipo_pago' => 'efectivo',
+            'detalles' => [[
+                'producto_id' => $producto->id,
+                'cantidad' => 1,
+            ]],
+        ])->assertCreated();
+
+        $this->deleteJson('/api/productos/'.$producto->id)
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.producto.status', Producto::STATUS_INACTIVO);
+
+        $this->assertDatabaseHas('productos', [
+            'id' => $producto->id,
+            'negocio_id' => $negocio->id,
+            'status' => Producto::STATUS_INACTIVO,
+        ]);
+
+        $this->getJson('/api/productos')
+            ->assertOk()
+            ->assertJsonPath('data.meta.total', 0);
+    }
+
+    public function test_cannot_create_producto_with_inactive_categoria(): void
+    {
+        $user = User::factory()->create();
+        $negocio = $user->negocio()->create([
+            'name' => 'Negocio Test',
+            'phone' => '6670000000',
+            'needs_invoice' => false,
+        ]);
+        $categoria = $negocio->categoriaProductos()->create([
+            'name' => 'Ramen',
+            'status' => CategoriaProducto::STATUS_INACTIVO,
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/productos', [
+            'name' => 'Ramen rosa',
+            'categoria_producto_id' => $categoria->id,
+            'price' => 70,
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('success', false);
+    }
+
+    public function test_list_returns_all_productos_and_can_filter_by_categoria(): void
+    {
+        $user = User::factory()->create();
+        $negocio = $user->negocio()->create([
+            'name' => 'Negocio Test',
+            'phone' => '6670000000',
+            'needs_invoice' => false,
+        ]);
+
+        $esquites = $negocio->categoriaProductos()->create([
+            'name' => 'Esquites',
+            'status' => CategoriaProducto::STATUS_ACTIVO,
+        ]);
+        $especialidades = $negocio->categoriaProductos()->create([
+            'name' => 'Especialidades',
+            'status' => CategoriaProducto::STATUS_ACTIVO,
+        ]);
+
+        for ($i = 1; $i <= 20; $i++) {
+            $negocio->productos()->create([
+                'categoria_producto_id' => $esquites->id,
+                'name' => "Esquite {$i}",
+                'price' => 40 + $i,
+                'status' => Producto::STATUS_ACTIVO,
+                'created_by' => $user->id,
+                'updated_by' => $user->id,
+            ]);
+        }
+
+        for ($i = 1; $i <= 5; $i++) {
+            $negocio->productos()->create([
+                'categoria_producto_id' => $especialidades->id,
+                'name' => "Especial {$i}",
+                'price' => 90 + $i,
+                'status' => Producto::STATUS_ACTIVO,
+                'created_by' => $user->id,
+                'updated_by' => $user->id,
+            ]);
+        }
+
+        Sanctum::actingAs($user);
+
+        // Sin paginate=1: devuelve TODOS (aunque el front mande page/per_page).
+        $this->getJson('/api/productos?page=1&per_page=15')
+            ->assertOk()
+            ->assertJsonPath('data.meta.total', 25)
+            ->assertJsonCount(25, 'data.productos');
+
+        $this->getJson('/api/productos?categoria_producto_id='.$esquites->id)
+            ->assertOk()
+            ->assertJsonPath('data.meta.total', 20)
+            ->assertJsonPath('data.meta.categoria_producto_id', $esquites->id)
+            ->assertJsonCount(20, 'data.productos');
+
+        $this->getJson('/api/productos?categoria_id='.$especialidades->id)
+            ->assertOk()
+            ->assertJsonPath('data.meta.total', 5)
+            ->assertJsonCount(5, 'data.productos');
+
+        $this->getJson('/api/productos?paginate=1&per_page=10')
+            ->assertOk()
+            ->assertJsonPath('data.meta.total', 25)
+            ->assertJsonPath('data.meta.per_page', 10)
+            ->assertJsonPath('data.meta.last_page', 3)
+            ->assertJsonCount(10, 'data.productos');
     }
 }

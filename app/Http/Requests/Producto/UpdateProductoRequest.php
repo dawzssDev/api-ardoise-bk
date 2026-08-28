@@ -57,7 +57,9 @@ class UpdateProductoRequest extends FormRequest
                 'required',
                 'integer',
                 Rule::exists('categoria_productos', 'id')->where(
-                    fn ($q) => $q->where('negocio_id', $negocioId)
+                    fn ($q) => $q
+                        ->where('negocio_id', $negocioId)
+                        ->where('status', 1)
                 ),
             ],
             'name' => [
@@ -81,7 +83,7 @@ class UpdateProductoRequest extends FormRequest
     {
         return [
             'categoria_producto_id.required' => 'La categoría del producto es obligatoria.',
-            'categoria_producto_id.exists' => 'La categoría seleccionada no existe en tu negocio.',
+            'categoria_producto_id.exists' => 'La categoría seleccionada no existe, está inactiva o no pertenece a tu negocio.',
             'name.required' => 'El nombre del producto es obligatorio.',
             'name.max' => 'El nombre no puede superar :max caracteres.',
             'name.unique' => 'Ya existe un producto con ese nombre en tu negocio.',

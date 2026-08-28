@@ -351,6 +351,71 @@ class TurnoCajaTest extends TestCase
             ->assertJsonPath('data.turnosAdministrador.0.id', $turnoId);
     }
 
+    public function test_staff_with_gerente_admo_can_list_turnos_by_sucursal(): void
+    {
+        [$user, $negocio, $sucursal, $producto, $cajera] = $this->seedCajaContext();
+
+        $cajeraPermissions = Role::defaultPermissions();
+        $cajeraPermissions['corteCaja'] = false;
+        $cajeraPermissions['corteCajaCajera'] = true;
+        $cajera->role->update(['permissions' => $cajeraPermissions]);
+
+        Sanctum::actingAs($cajera);
+        $turnoId = $this->postJson('/api/turnos-caja/abrir', [
+            'fondo_inicial' => 80,
+        ])->assertCreated()->json('data.turno.id');
+
+        $this->postJson("/api/turnos-caja/{$turnoId}/cerrar", [
+            'efectivo_real' => 80,
+        ])->assertOk();
+
+        $gerentePermissions = Role::defaultPermissions();
+        $gerentePermissions['corteCaja'] = false;
+        $gerentePermissions['corteCajaCajera'] = false;
+        $gerentePermissions['corteCajaGerenteAdmo'] = true;
+
+        $gerenteRole = $negocio->roles()->create([
+            'name' => 'Gerente sucursal',
+            'permissions' => $gerentePermissions,
+            'status' => true,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        $empleadoGerente = $negocio->empleados()->create([
+            'sucursal_id' => $sucursal->id,
+            'role_id' => $gerenteRole->id,
+            'first_name' => 'Luis',
+            'paternal_surname' => 'Gerente',
+            'employee_number' => 'EMP-GER',
+            'status' => 'activo',
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        $gerente = $negocio->staff()->create([
+            'username' => 'luis.gerente',
+            'password' => 'secreto123',
+            'sucursal_id' => $sucursal->id,
+            'role_id' => $gerenteRole->id,
+            'empleado_id' => $empleadoGerente->id,
+            'status' => true,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        Sanctum::actingAs($gerente);
+        $this->getJson('/api/turnos-caja?sucursal_id='.$sucursal->id.'&status=cerrado')
+            ->assertOk()
+            ->assertJsonPath('data.turnos.0.id', $turnoId)
+            ->assertJsonPath('data.turnosAdministrador.0.id', $turnoId)
+            ->assertJsonPath('data.turnosAdministrador.0.status_administrador', TurnoCaja::STATUS_ABIERTO);
+
+        $this->getJson('/api/turnos-caja?sucursalId='.$sucursal->id)
+            ->assertOk()
+            ->assertJsonPath('data.turnosAdministrador.0.id', $turnoId);
+    }
+
     /**
      * @return array{0: User, 1: \App\Models\Negocio, 2: Sucursal, 3: \App\Models\Producto, 4: \App\Models\Staff}
      */

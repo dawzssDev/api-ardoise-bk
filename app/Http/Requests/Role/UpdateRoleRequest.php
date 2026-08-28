@@ -135,6 +135,7 @@ class UpdateRoleRequest extends FormRequest
             'permissions.ventaDirecta' => ['sometimes', 'boolean'],
             'permissions.levantarOrden' => ['sometimes', 'boolean'],
             'permissions.cuentasContables' => ['sometimes', 'boolean'],
+            'permissions.cancelarDetalles' => ['sometimes', 'boolean'],
             'status' => ['sometimes', 'boolean'],
         ];
     }

@@ -371,15 +371,18 @@ CREATE TABLE `insumos` (
 --------------------------------------------------------------------------------
 1f) categoria_productos  (catálogo de categorías por negocio; solo nombre)
 --------------------------------------------------------------------------------
+-- status: 1 = activo, 0 = inactivo (baja lógica; DELETE pone status = 0)
 CREATE TABLE `categoria_productos` (
   `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
   `negocio_id` bigint UNSIGNED NOT NULL,
   `name` varchar(255) NOT NULL,
+  `status` tinyint UNSIGNED NOT NULL DEFAULT 1,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `categoria_productos_negocio_id_name_unique` (`negocio_id`, `name`),
   KEY `categoria_productos_negocio_id_foreign` (`negocio_id`),
+  KEY `categoria_productos_negocio_id_status_index` (`negocio_id`, `status`),
   CONSTRAINT `categoria_productos_negocio_id_foreign`
     FOREIGN KEY (`negocio_id`) REFERENCES `negocios` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -398,6 +401,7 @@ CREATE TABLE `categoria_productos` (
 --   usercreacion       → created_by
 --   fechaupdate        → updated_at
 --   userupdate         → updated_by
+-- status: 1 = activo, 0 = inactivo (baja lógica; DELETE pone status = 0)
 CREATE TABLE `productos` (
   `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
   `negocio_id` bigint UNSIGNED NOT NULL,
@@ -405,6 +409,7 @@ CREATE TABLE `productos` (
   `name` varchar(255) NOT NULL,
   `price` decimal(12,2) NOT NULL,
   `image` varchar(255) NULL DEFAULT NULL,
+  `status` tinyint UNSIGNED NOT NULL DEFAULT 1,
   `created_by` bigint UNSIGNED NOT NULL,
   `updated_by` bigint UNSIGNED NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -416,6 +421,7 @@ CREATE TABLE `productos` (
   KEY `productos_created_by_foreign` (`created_by`),
   KEY `productos_updated_by_foreign` (`updated_by`),
   KEY `productos_negocio_id_categoria_producto_id_index` (`negocio_id`, `categoria_producto_id`),
+  KEY `productos_negocio_id_status_index` (`negocio_id`, `status`),
   CONSTRAINT `productos_negocio_id_foreign`
     FOREIGN KEY (`negocio_id`) REFERENCES `negocios` (`id`) ON DELETE CASCADE,
   CONSTRAINT `productos_categoria_producto_id_foreign`
@@ -1486,6 +1492,21 @@ CREATE tb_turnos_cajas_cortes
 -- Si tb_turnos_cajas ya existe, ejecuta el CREATE de 1n2 y:
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_08_27_010000_create_tb_turnos_cajas_cortes_table', 1);
+
+================================================================================
+ALTER categoria_productos / productos — status (1 activo, 0 inactivo)
+================================================================================
+-- Si las tablas ya existen sin este campo, ejecuta:
+ALTER TABLE `categoria_productos`
+  ADD COLUMN `status` tinyint UNSIGNED NOT NULL DEFAULT 1 AFTER `name`,
+  ADD KEY `categoria_productos_negocio_id_status_index` (`negocio_id`, `status`);
+
+ALTER TABLE `productos`
+  ADD COLUMN `status` tinyint UNSIGNED NOT NULL DEFAULT 1 AFTER `image`,
+  ADD KEY `productos_negocio_id_status_index` (`negocio_id`, `status`);
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_08_28_010000_add_status_to_categoria_productos_and_productos_tables', 1);
 
 ================================================================================
 FIN

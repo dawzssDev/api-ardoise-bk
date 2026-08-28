@@ -109,12 +109,12 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::delete('/tipos-venta/{id}', [TipoVentaController::class, 'destroy'])->whereNumber('id');
 
     // Cuentas por cobrar (consumo colaborador / descuento nómina)
+    // Cobrar: usuario maestro o staff con permiso cuentas_por_cobrar
     Route::get('/cuentas-por-cobrar', [CuentaPorCobrarController::class, 'index']);
     Route::get('/cuentas-por-cobrar/resumen', [CuentaPorCobrarController::class, 'resumen']);
-    Route::middleware('master')->group(function () {
-        Route::post('/cuentas-por-cobrar/pagar-lote', [CuentaPorCobrarController::class, 'pagarLote']);
-        Route::post('/cuentas-por-cobrar/{id}/pagar', [CuentaPorCobrarController::class, 'pagar'])->whereNumber('id');
-    });
+    Route::get('/cuentas-por-cobrar/pagadas', [CuentaPorCobrarController::class, 'pagadas']);
+    Route::post('/cuentas-por-cobrar/pagar-lote', [CuentaPorCobrarController::class, 'pagarLote']);
+    Route::post('/cuentas-por-cobrar/{id}/pagar', [CuentaPorCobrarController::class, 'pagar'])->whereNumber('id');
 
     // Insumos del negocio (throttle:api = máx. 60 req/min)
     Route::get('/insumos', [InsumoController::class, 'index']);
@@ -226,9 +226,11 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     // Órdenes POS (header + detalle)
     Route::get('/ordenes', [OrdenController::class, 'index']);
     Route::get('/ordenes/cocina', [OrdenController::class, 'cocina']);
+    Route::get('/ordenes/hoy', [OrdenController::class, 'hoy']);
     Route::post('/ordenes', [OrdenController::class, 'store']);
     Route::get('/ordenes/{id}', [OrdenController::class, 'show'])->whereNumber('id');
     Route::put('/ordenes/{id}/status', [OrdenController::class, 'setStatus'])->whereNumber('id');
+    Route::post('/ordenes/{id}/detalles/cancelar', [OrdenController::class, 'cancelarDetalles'])->whereNumber('id');
     Route::put('/ordenes/{id}/detalles/{detalleId}/status', [OrdenController::class, 'setDetalleStatus'])
         ->whereNumber('id')
         ->whereNumber('detalleId');
