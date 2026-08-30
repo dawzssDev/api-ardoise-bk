@@ -234,4 +234,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::put('/ordenes/{id}/detalles/{detalleId}/status', [OrdenController::class, 'setDetalleStatus'])
         ->whereNumber('id')
         ->whereNumber('detalleId');
+    Route::put('/ordenes/{id}/detalles/{detalleId}/entrega', [OrdenController::class, 'setDetalleEntrega'])
+        ->whereNumber('id')
+        ->whereNumber('detalleId');
 });

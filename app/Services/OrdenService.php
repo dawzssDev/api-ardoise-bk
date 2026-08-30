@@ -474,6 +474,40 @@ class OrdenService
         ]);
     }
 
+    /**
+     * Marca un único detalle como entregado / sin entregar.
+     * No toca precios, totales ni el estatus de la orden.
+     */
+    public function setDetalleEntrega(
+        Orden $orden,
+        int $detalleId,
+        User|Staff $actor,
+        int $statusEntregado,
+    ): OrdenDetalle {
+        if (! in_array($statusEntregado, OrdenDetalle::ENTREGA_STATUSES, true)) {
+            throw new HttpException(422, 'Estatus de entrega inválido.');
+        }
+
+        /** @var OrdenDetalle $detalle */
+        $detalle = $orden->detalles()->whereKey($detalleId)->firstOrFail();
+
+        if ((int) $detalle->status === OrdenDetalle::STATUS_CANCELADO) {
+            throw new HttpException(422, 'No puedes marcar la entrega de un producto cancelado.');
+        }
+
+        $detalle->status_entregado = $statusEntregado;
+        $detalle->save();
+
+        $orden->updated_by = $this->auditUserId($actor, $orden->negocio);
+        $orden->save();
+
+        return $detalle->refresh()->load([
+            'producto:id,negocio_id,name,price',
+            'advancedByStaff:'.self::STAFF_WITH,
+            'finishedByStaff:'.self::STAFF_WITH,
+        ]);
+    }
+
     private function aplicarCancelacionDetalle(OrdenDetalle $detalle): void
     {
         if ((int) $detalle->status === OrdenDetalle::STATUS_CANCELADO) {

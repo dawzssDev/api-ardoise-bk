@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Models\OrdenDetalle;
 use App\Models\Staff;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -53,6 +54,8 @@ class OrdenDetalleResource extends JsonResource
             'notes' => $this->notes,
             'estatus' => $this->status,
             'status' => $this->status,
+            'status_entregado' => (int) $this->status_entregado,
+            'entregado' => (int) $this->status_entregado === OrdenDetalle::ENTREGA_ENTREGADO,
             'staff_avanzo' => $this->whenLoaded('advancedByStaff', fn () => $this->staffPayload($this->advancedByStaff)),
             'staff_finalizo' => $this->whenLoaded('finishedByStaff', fn () => $this->staffPayload($this->finishedByStaff)),
             'advanced_by_staff_id' => $this->advanced_by_staff_id,

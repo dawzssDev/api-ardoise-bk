@@ -27,6 +27,15 @@ class OrdenDetalle extends Model
         self::STATUS_CANCELADO,
     ];
 
+    public const ENTREGA_SIN_ENTREGAR = 1;
+
+    public const ENTREGA_ENTREGADO = 2;
+
+    public const ENTREGA_STATUSES = [
+        self::ENTREGA_SIN_ENTREGAR,
+        self::ENTREGA_ENTREGADO,
+    ];
+
     public const ADVANCE_STATUSES = [
         self::STATUS_EN_PREPARACION,
     ];
@@ -49,6 +58,7 @@ class OrdenDetalle extends Model
         'extras',
         'notes',
         'status',
+        'status_entregado',
         'advanced_by_staff_id',
         'finished_by_staff_id',
         'advanced_at',
@@ -64,6 +74,7 @@ class OrdenDetalle extends Model
             'price' => 'decimal:2',
             'extras' => 'array',
             'status' => 'integer',
+            'status_entregado' => 'integer',
             'advanced_at' => 'datetime',
             'finished_at' => 'datetime',
         ];

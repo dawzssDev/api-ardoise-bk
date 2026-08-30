@@ -753,6 +753,7 @@ CREATE TABLE `ordenes` (
 --   Extras         → extras (JSON)
 --   Observaciones  → notes
 --   Estatus        → status (1=pendiente, 2=en_preparacion, 3=listo, 4=entregado, 5=cancelado)
+--   Entrega        → status_entregado (1=sin entregar, 2=entregado)
 --   staff cocina   → advanced_by_staff_id / finished_by_staff_id
 CREATE TABLE `orden_detalles` (
   `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -764,6 +765,7 @@ CREATE TABLE `orden_detalles` (
   `extras` json NULL DEFAULT NULL,
   `notes` varchar(500) NULL DEFAULT NULL,
   `status` tinyint UNSIGNED NOT NULL DEFAULT 1,
+  `status_entregado` tinyint UNSIGNED NOT NULL DEFAULT 1,
   `advanced_by_staff_id` bigint UNSIGNED NULL DEFAULT NULL,
   `finished_by_staff_id` bigint UNSIGNED NULL DEFAULT NULL,
   `advanced_at` timestamp NULL DEFAULT NULL,
@@ -1507,6 +1509,16 @@ ALTER TABLE `productos`
 
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_08_28_010000_add_status_to_categoria_productos_and_productos_tables', 1);
+
+================================================================================
+ALTER orden_detalles — status_entregado (1 sin entregar, 2 entregado)
+================================================================================
+-- Si `orden_detalles` ya existe sin este campo, ejecuta:
+ALTER TABLE `orden_detalles`
+  ADD COLUMN `status_entregado` tinyint UNSIGNED NOT NULL DEFAULT 1 AFTER `status`;
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_08_29_120000_add_status_entregado_to_orden_detalles_table', 1);
 
 ================================================================================
 FIN

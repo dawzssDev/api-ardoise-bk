@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Orden\CancelarOrdenDetallesRequest;
 use App\Http\Requests\Orden\CreateOrdenRequest;
+use App\Http\Requests\Orden\UpdateOrdenDetalleEntregaRequest;
 use App\Http\Requests\Orden\UpdateOrdenDetalleStatusRequest;
 use App\Http\Requests\Orden\UpdateOrdenStatusRequest;
 use App\Http\Resources\OrdenDetalleResource;
@@ -216,6 +217,37 @@ class OrdenController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Estatus de detalle actualizado.',
+            'data' => [
+                'detalle' => (new OrdenDetalleResource($detalle))->resolve(),
+            ],
+            'errors' => null,
+        ]);
+    }
+
+    /**
+     * Marcar un único producto del detalle como entregado (2) o sin entregar (1).
+     */
+    public function setDetalleEntrega(
+        UpdateOrdenDetalleEntregaRequest $request,
+        int $id,
+        int $detalleId,
+    ): JsonResponse {
+        try {
+            $negocio = $this->ordenes->negocioForUser($request->user());
+            $orden = $this->ordenes->findForNegocio($negocio, $id);
+            $detalle = $this->ordenes->setDetalleEntrega(
+                $orden,
+                $detalleId,
+                $request->user(),
+                (int) $request->validated('status_entregado'),
+            );
+        } catch (HttpException $e) {
+            return $this->errorResponse($e);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Estatus de entrega actualizado.',
             'data' => [
                 'detalle' => (new OrdenDetalleResource($detalle))->resolve(),
             ],
