@@ -83,14 +83,19 @@ class UpdateMaeCuentaContaSucDetalleRequest extends FormRequest
     public function rules(): array
     {
         $negocioId = $this->user()?->negocio?->id;
-        $esTransferencia = $this->input('tipo_movimiento') === MaeCuentaContaSucDetalle::TIPO_TRANSFERENCIA;
+        $esConCuentas = in_array($this->input('tipo_movimiento'), [
+            MaeCuentaContaSucDetalle::TIPO_TRANSFERENCIA,
+            MaeCuentaContaSucDetalle::TIPO_RETIRO,
+            MaeCuentaContaSucDetalle::TIPO_VENTA_EFECTIVO,
+            MaeCuentaContaSucDetalle::TIPO_VENTA_TARJETA,
+        ], true);
 
         return [
             'tipo_movimiento' => ['sometimes', 'required', 'string', Rule::in(MaeCuentaContaSucDetalle::TIPOS_MOVIMIENTO)],
             'descripcion_movimiento' => ['sometimes', 'required', 'string', 'max:500'],
             'monto_movimiento' => ['sometimes', 'required', 'numeric', 'gt:0'],
             'cuenta_origen_id' => [
-                Rule::requiredIf($esTransferencia),
+                Rule::requiredIf($esConCuentas),
                 'nullable',
                 'integer',
                 Rule::exists('mae_cuenta_conta_suc', 'id')->where(
@@ -119,11 +124,11 @@ class UpdateMaeCuentaContaSucDetalleRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'tipo_movimiento.in' => 'El tipo de movimiento debe ser deposito o transferencia.',
+            'tipo_movimiento.in' => 'El tipo de movimiento debe ser deposito, transferencia, retiro, venta_efectivo o venta_tarjeta.',
             'descripcion_movimiento.required' => 'La descripción del movimiento es obligatoria.',
             'descripcion_movimiento.max' => 'La descripción no puede superar :max caracteres.',
             'monto_movimiento.gt' => 'El monto del movimiento debe ser mayor a cero.',
-            'cuenta_origen_id.required' => 'La cuenta origen es obligatoria cuando el movimiento es transferencia.',
+            'cuenta_origen_id.required' => 'La cuenta origen es obligatoria para transferencia, retiro o venta de corte.',
             'cuenta_origen_id.exists' => 'La cuenta origen no existe, no pertenece a tu negocio o está eliminada.',
             'cuenta_destino_id.exists' => 'La cuenta destino no existe, no pertenece a tu negocio o está eliminada.',
             'status.in' => 'El status debe ser 1 (activo) o 0 (inactivo).',

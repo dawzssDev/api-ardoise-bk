@@ -19,6 +19,7 @@ class TipoVentaService
      *     valor_descuento?: float|int|string|null,
      *     diferir_cobro?: bool,
      *     requiere_empleado?: bool,
+     *     require_autori?: int,
      *     status?: bool
      * }  $data
      */
@@ -37,6 +38,9 @@ class TipoVentaService
             'requiere_empleado' => array_key_exists('requiere_empleado', $data)
                 ? (bool) $data['requiere_empleado']
                 : false,
+            'require_autori' => array_key_exists('require_autori', $data)
+                ? (int) $data['require_autori']
+                : 0,
             'status' => array_key_exists('status', $data) ? (bool) $data['status'] : true,
         ]);
     }
@@ -64,6 +68,10 @@ class TipoVentaService
                 ? $data['valor_descuento']
                 : $tipoVenta->valor_descuento;
             $data['valor_descuento'] = $this->normalizeValorDescuento($tipoDescuento, $valor);
+        }
+
+        if (array_key_exists('require_autori', $data)) {
+            $data['require_autori'] = (int) $data['require_autori'];
         }
 
         $tipoVenta->fill($data);

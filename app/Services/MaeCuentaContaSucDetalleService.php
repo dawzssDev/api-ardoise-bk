@@ -7,6 +7,7 @@ use App\Models\MaeCuentaContaSucDetalle;
 use App\Models\Negocio;
 use App\Models\Staff;
 use App\Models\Sucursal;
+use App\Models\TurnoCaja;
 use App\Models\User;
 use App\Services\Concerns\ResolvesNegocioFromActor;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -49,7 +50,30 @@ class MaeCuentaContaSucDetalleService
         return DB::transaction(function () use ($cuenta, $tipo, $monto, $origenId, $destinoId, $data, $auditId) {
             $destino = $this->lockCuenta($destinoId);
             $origen = $origenId ? $this->lockCuenta($origenId) : null;
-            $pendiente = $this->esSolicitudMaestraASubcuenta($origen, $destino);
+            $esVentaCorte = in_array($tipo, MaeCuentaContaSucDetalle::TIPOS_VENTA_CORTE, true);
+
+            // transferencia/retiro sucursal → matriz: solicitud de retiro (saldo al autorizar)
+            // Las ventas de corte NO entran aquí: solo abonan matriz.
+            if (! $esVentaCorte && $this->esSolicitudSubcuentaAMaestra($origen, $destino)) {
+                $tipo = MaeCuentaContaSucDetalle::TIPO_RETIRO;
+                $this->assertSaldoSuficiente($origen, $monto);
+
+                return $cuenta->detalles()->create([
+                    'negocio_id' => $cuenta->negocio_id,
+                    'tipo_movimiento' => $tipo,
+                    'cuenta_origen_id' => $origenId,
+                    'monto_movimiento' => $monto,
+                    'cuenta_destino_id' => $destinoId,
+                    'descripcion_movimiento' => trim((string) $data['descripcion_movimiento']),
+                    'status' => MaeCuentaContaSucDetalle::STATUS_PENDIENTE,
+                    'deleted' => MaeCuentaContaSucDetalle::DELETED_NO,
+                    'created_by' => $auditId,
+                    'updated_by' => $auditId,
+                ]);
+            }
+
+            // transferencia matriz → sucursal: solicitud (descuenta maestra al crear)
+            $pendiente = ! $esVentaCorte && $this->esSolicitudMaestraASubcuenta($origen, $destino);
             $status = $pendiente
                 ? MaeCuentaContaSucDetalle::STATUS_PENDIENTE
                 : MaeCuentaContaSucDetalle::STATUS_ACEPTADO;
@@ -73,6 +97,102 @@ class MaeCuentaContaSucDetalleService
                 'updated_by' => $auditId,
             ]);
         });
+    }
+
+    /**
+     * Al autorizar corte gerencial: abona a cuenta matriz las ventas efectivo/tarjeta
+     * con origen = subcuenta de la sucursal (sin descontar saldo de sucursal).
+     *
+     * @return list<MaeCuentaContaSucDetalle>
+     */
+    public function registrarVentasCorteGerencia(TurnoCaja $turno, User|Staff $actor): array
+    {
+        $turno->loadMissing('sucursal:id,name');
+
+        $maestra = MaeCuentaContaSuc::query()
+            ->where('negocio_id', $turno->negocio_id)
+            ->where('tipo_cuenta', MaeCuentaContaSuc::TIPO_MAESTRA)
+            ->where('deleted', MaeCuentaContaSuc::DELETED_NO)
+            ->where('status', MaeCuentaContaSuc::STATUS_ACTIVO)
+            ->orderBy('id')
+            ->first();
+
+        if (! $maestra) {
+            throw new HttpException(422, 'No hay cuenta matriz activa para registrar el corte gerencial.');
+        }
+
+        $subcuenta = MaeCuentaContaSuc::query()
+            ->where('negocio_id', $turno->negocio_id)
+            ->where('tipo_cuenta', MaeCuentaContaSuc::TIPO_SUBCUENTA)
+            ->where('sucursal_id', $turno->sucursal_id)
+            ->where('deleted', MaeCuentaContaSuc::DELETED_NO)
+            ->where('status', MaeCuentaContaSuc::STATUS_ACTIVO)
+            ->orderBy('id')
+            ->first();
+
+        if (! $subcuenta) {
+            throw new HttpException(
+                422,
+                'No hay cuenta contable de sucursal activa para registrar el origen del corte gerencial.',
+            );
+        }
+
+        $descripcion = $this->descripcionCorteGerencia($turno);
+        $auditId = $this->auditUserId($actor, $turno->negocio);
+        $creados = [];
+
+        $lineas = [
+            [
+                'tipo' => MaeCuentaContaSucDetalle::TIPO_VENTA_EFECTIVO,
+                'monto' => round((float) $turno->total_ventas_efectivo, 2),
+            ],
+            [
+                'tipo' => MaeCuentaContaSucDetalle::TIPO_VENTA_TARJETA,
+                'monto' => round((float) $turno->total_ventas_tarjeta, 2),
+            ],
+        ];
+
+        return DB::transaction(function () use ($maestra, $subcuenta, $lineas, $descripcion, $auditId, $creados) {
+            $destino = $this->lockCuenta($maestra->id);
+
+            foreach ($lineas as $linea) {
+                if ($linea['monto'] <= 0) {
+                    continue;
+                }
+
+                $monto = number_format($linea['monto'], 2, '.', '');
+                $this->credit($destino, $monto);
+                $destino->refresh();
+
+                $creados[] = $maestra->detalles()->create([
+                    'negocio_id' => $maestra->negocio_id,
+                    'tipo_movimiento' => $linea['tipo'],
+                    'cuenta_origen_id' => $subcuenta->id,
+                    'monto_movimiento' => $monto,
+                    'cuenta_destino_id' => $maestra->id,
+                    'descripcion_movimiento' => $descripcion,
+                    'status' => MaeCuentaContaSucDetalle::STATUS_ACEPTADO,
+                    'deleted' => MaeCuentaContaSucDetalle::DELETED_NO,
+                    'created_by' => $auditId,
+                    'updated_by' => $auditId,
+                ]);
+            }
+
+            return $creados;
+        });
+    }
+
+    private function descripcionCorteGerencia(TurnoCaja $turno): string
+    {
+        $fecha = $turno->fecha_cierre
+            ?? $turno->fecha_cierre_cajera
+            ?? $turno->fecha_apertura
+            ?? now();
+
+        $fechaTxt = $fecha->timezone(config('app.timezone'))->format('d/m/Y');
+        $sucursal = trim((string) ($turno->sucursal?->name ?? 'SUCURSAL'));
+
+        return "CORTE del {$fechaTxt} de {$sucursal}";
     }
 
     public function listForNegocio(
@@ -141,10 +261,21 @@ class MaeCuentaContaSucDetalleService
             ->where('mae_cuenta_conta_suc_detalle.negocio_id', $negocio->id)
             ->where('mae_cuenta_conta_suc_detalle.status', MaeCuentaContaSucDetalle::STATUS_PENDIENTE)
             ->where('mae_cuenta_conta_suc_detalle.deleted', MaeCuentaContaSucDetalle::DELETED_NO)
-            ->whereHas('cuentaDestino', function ($q) use ($negocio, $sucursalId) {
-                $q->where('negocio_id', $negocio->id)
-                    ->where('sucursal_id', $sucursalId)
-                    ->where('deleted', MaeCuentaContaSuc::DELETED_NO);
+            ->where(function ($q) use ($negocio, $sucursalId) {
+                // Transferencia entrada: cuenta destino = subcuenta de la sucursal
+                $q->whereHas('cuentaDestino', function ($destino) use ($negocio, $sucursalId) {
+                    $destino->where('negocio_id', $negocio->id)
+                        ->where('sucursal_id', $sucursalId)
+                        ->where('tipo_cuenta', MaeCuentaContaSuc::TIPO_SUBCUENTA)
+                        ->where('deleted', MaeCuentaContaSuc::DELETED_NO);
+                })
+                // Retiro salida: cuenta origen = subcuenta de la sucursal
+                    ->orWhereHas('cuentaOrigen', function ($origen) use ($negocio, $sucursalId) {
+                        $origen->where('negocio_id', $negocio->id)
+                            ->where('sucursal_id', $sucursalId)
+                            ->where('tipo_cuenta', MaeCuentaContaSuc::TIPO_SUBCUENTA)
+                            ->where('deleted', MaeCuentaContaSuc::DELETED_NO);
+                    });
             })
             ->with($this->detalleRelations())
             ->latest()
@@ -250,7 +381,17 @@ class MaeCuentaContaSucDetalleService
             }
 
             $destino = $this->lockCuenta((int) $detalle->cuenta_destino_id);
-            $this->credit($destino, (string) $detalle->monto_movimiento);
+            $monto = (string) $detalle->monto_movimiento;
+
+            if ($detalle->isRetiro()) {
+                // Retiro sucursal → matriz: descuenta sucursal y abona matriz al autorizar
+                $origen = $this->lockCuenta((int) $detalle->cuenta_origen_id);
+                $this->debit($origen, $monto);
+                $this->credit($destino, $monto);
+            } else {
+                // Transferencia matriz → sucursal: maestra ya descontada al crear
+                $this->credit($destino, $monto);
+            }
 
             $detalle->status = MaeCuentaContaSucDetalle::STATUS_ACEPTADO;
             $detalle->updated_by = $this->auditUserId($actor, $detalle->negocio);
@@ -271,8 +412,12 @@ class MaeCuentaContaSucDetalleService
                 throw new HttpException(422, 'Solo se pueden rechazar solicitudes pendientes.');
             }
 
-            $origen = $this->lockCuenta((int) $detalle->cuenta_origen_id);
-            $this->credit($origen, (string) $detalle->monto_movimiento);
+            // Retiro: no se movió saldo al crear → solo marca rechazado.
+            // Transferencia entrada: devolver a maestra lo descontado al crear.
+            if (! $detalle->isRetiro()) {
+                $origen = $this->lockCuenta((int) $detalle->cuenta_origen_id);
+                $this->credit($origen, (string) $detalle->monto_movimiento);
+            }
 
             $detalle->status = MaeCuentaContaSucDetalle::STATUS_RECHAZADO;
             $detalle->updated_by = $this->auditUserId($actor, $detalle->negocio);
@@ -328,7 +473,13 @@ class MaeCuentaContaSucDetalleService
 
         $origen = (int) $origenId;
         if ($origen < 1) {
-            throw new HttpException(422, 'La cuenta origen es obligatoria cuando el movimiento es transferencia.');
+            $label = match ($tipo) {
+                MaeCuentaContaSucDetalle::TIPO_RETIRO => 'retiro',
+                MaeCuentaContaSucDetalle::TIPO_VENTA_EFECTIVO,
+                MaeCuentaContaSucDetalle::TIPO_VENTA_TARJETA => 'venta de corte',
+                default => 'transferencia',
+            };
+            throw new HttpException(422, "La cuenta origen es obligatoria cuando el movimiento es {$label}.");
         }
 
         $this->assertCuentaDelNegocio($cuenta->negocio_id, $origen, 'origen');
@@ -359,7 +510,7 @@ class MaeCuentaContaSucDetalleService
     {
         $normalized = MaeCuentaContaSucDetalle::normalizeTipoMovimiento($tipo);
         if ($normalized === null) {
-            throw new HttpException(422, 'El tipo de movimiento debe ser deposito o transferencia.');
+            throw new HttpException(422, 'El tipo de movimiento debe ser deposito, transferencia, retiro, venta_efectivo o venta_tarjeta.');
         }
 
         return $normalized;
@@ -372,15 +523,35 @@ class MaeCuentaContaSucDetalleService
             && $destino->tipo_cuenta === MaeCuentaContaSuc::TIPO_SUBCUENTA;
     }
 
+    private function esSolicitudSubcuentaAMaestra(?MaeCuentaContaSuc $origen, MaeCuentaContaSuc $destino): bool
+    {
+        return $origen !== null
+            && $origen->tipo_cuenta === MaeCuentaContaSuc::TIPO_SUBCUENTA
+            && $destino->isMaestra();
+    }
+
     private function aplicarMovimientoInmediato(
         string $tipo,
         ?MaeCuentaContaSuc $origen,
         MaeCuentaContaSuc $destino,
         string $monto,
     ): void {
-        if ($tipo === MaeCuentaContaSucDetalle::TIPO_TRANSFERENCIA) {
+        // Ventas de corte y depósito: solo abonan destino (no descuentan origen).
+        if (in_array($tipo, [
+            MaeCuentaContaSucDetalle::TIPO_DEPOSITO,
+            ...MaeCuentaContaSucDetalle::TIPOS_VENTA_CORTE,
+        ], true)) {
+            $this->credit($destino, $monto);
+
+            return;
+        }
+
+        if (in_array($tipo, [
+            MaeCuentaContaSucDetalle::TIPO_TRANSFERENCIA,
+            MaeCuentaContaSucDetalle::TIPO_RETIRO,
+        ], true)) {
             if ($origen === null) {
-                throw new HttpException(422, 'La cuenta origen es obligatoria cuando el movimiento es transferencia.');
+                throw new HttpException(422, 'La cuenta origen es obligatoria cuando el movimiento es transferencia o retiro.');
             }
 
             $this->debit($origen, $monto);
@@ -407,7 +578,7 @@ class MaeCuentaContaSucDetalleService
         return $cuenta;
     }
 
-    private function debit(MaeCuentaContaSuc $cuenta, string $monto): void
+    private function assertSaldoSuficiente(MaeCuentaContaSuc $cuenta, string $monto): void
     {
         $saldo = round((float) $cuenta->saldo, 2);
         $valor = round((float) $monto, 2);
@@ -415,7 +586,14 @@ class MaeCuentaContaSucDetalleService
         if ($saldo + 0.0001 < $valor) {
             throw new HttpException(422, 'Saldo insuficiente en la cuenta origen.');
         }
+    }
 
+    private function debit(MaeCuentaContaSuc $cuenta, string $monto): void
+    {
+        $this->assertSaldoSuficiente($cuenta, $monto);
+
+        $saldo = round((float) $cuenta->saldo, 2);
+        $valor = round((float) $monto, 2);
         $cuenta->saldo = number_format($saldo - $valor, 2, '.', '');
         $cuenta->save();
     }
@@ -428,19 +606,26 @@ class MaeCuentaContaSucDetalleService
 
     private function assertPuedeResolverSolicitud(MaeCuentaContaSucDetalle $detalle, User|Staff $actor): void
     {
-        $detalle->loadMissing('cuentaDestino');
-        $destino = $detalle->cuentaDestino;
-
-        if (! $destino) {
-            throw new HttpException(422, 'La solicitud no tiene cuenta destino.');
-        }
+        $detalle->loadMissing(['cuentaDestino', 'cuentaOrigen']);
 
         if ($actor instanceof User) {
             return;
         }
 
-        if ((int) $actor->sucursal_id !== (int) $destino->sucursal_id) {
-            throw new HttpException(403, 'Solo el encargado de la sucursal destino puede aceptar o rechazar esta solicitud.');
+        // Retiro: autoriza staff de la sucursal origen. Transferencia entrada: staff de destino.
+        $cuentaSucursal = $detalle->isRetiro() ? $detalle->cuentaOrigen : $detalle->cuentaDestino;
+
+        if (! $cuentaSucursal) {
+            throw new HttpException(422, 'La solicitud no tiene la cuenta de sucursal asociada.');
+        }
+
+        if ((int) $actor->sucursal_id !== (int) $cuentaSucursal->sucursal_id) {
+            throw new HttpException(
+                403,
+                $detalle->isRetiro()
+                    ? 'Solo el encargado de la sucursal origen puede aceptar o rechazar este retiro.'
+                    : 'Solo el encargado de la sucursal destino puede aceptar o rechazar esta solicitud.',
+            );
         }
     }
 

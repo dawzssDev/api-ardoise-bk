@@ -39,9 +39,36 @@ class UpdateTipoVentaRequest extends FormRequest
             }
         }
 
+        if (! $this->exists('require_autori')) {
+            foreach (['requireAutori', 'requiere_autorizacion', 'requiereAutorizacion'] as $alias) {
+                if ($this->exists($alias)) {
+                    $merge['require_autori'] = $this->input($alias);
+                    break;
+                }
+            }
+        }
+
+        if (array_key_exists('require_autori', $merge) || $this->exists('require_autori')) {
+            $raw = $merge['require_autori'] ?? $this->input('require_autori');
+            $merge['require_autori'] = $this->normalizeRequireAutori($raw);
+        }
+
         if ($merge !== []) {
             $this->merge($merge);
         }
+    }
+
+    private function normalizeRequireAutori(mixed $value): mixed
+    {
+        if ($value === true || $value === 1 || $value === '1') {
+            return 1;
+        }
+
+        if ($value === false || $value === 0 || $value === '0') {
+            return 0;
+        }
+
+        return $value;
     }
 
     /**
@@ -76,6 +103,7 @@ class UpdateTipoVentaRequest extends FormRequest
             ])),
             'diferir_cobro' => ['sometimes', 'boolean'],
             'requiere_empleado' => ['sometimes', 'boolean'],
+            'require_autori' => ['sometimes', 'integer', Rule::in([0, 1])],
             'status' => ['sometimes', 'boolean'],
         ];
     }
@@ -94,6 +122,7 @@ class UpdateTipoVentaRequest extends FormRequest
             'valor_descuento.required' => 'El valor del descuento es obligatorio para este tipo.',
             'valor_descuento.min' => 'El valor del descuento no puede ser negativo.',
             'valor_descuento.max' => 'El porcentaje de descuento no puede superar 100.',
+            'require_autori.in' => 'require_autori debe ser 0 (sin autorización) o 1 (requiere autorización).',
         ];
     }
 }

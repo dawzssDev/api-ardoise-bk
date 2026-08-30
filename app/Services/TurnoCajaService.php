@@ -21,6 +21,10 @@ class TurnoCajaService
 {
     use ResolvesNegocioFromActor;
 
+    public function __construct(
+        private readonly MaeCuentaContaSucDetalleService $cuentasContablesDetalles,
+    ) {}
+
     /**
      * @param  array{sucursal_id?: int|null, fondo_inicial?: float|int|string|null, status_gerencia?: mixed}  $data
      */
@@ -71,6 +75,7 @@ class TurnoCajaService
 
             return $this->cerrarPorGerencia(
                 $turno,
+                $actor,
                 $hasStatusGerencia ? $statusGerencia : TurnoCaja::STATUS_CERRADO,
             );
         }
@@ -659,22 +664,26 @@ class TurnoCajaService
     }
 
     /**
-     * Cierre de gerencia: solo actualiza status_gerencia.
-     * No toca status_administrador ni los totales del corte.
+     * Cierre de gerencia: status_gerencia + abona ventas efectivo/tarjeta a cuenta matriz.
+     * No toca status_administrador ni recalcula totales del corte.
      */
-    private function cerrarPorGerencia(TurnoCaja $turno, mixed $statusGerencia): TurnoCaja
+    private function cerrarPorGerencia(TurnoCaja $turno, User|Staff $actor, mixed $statusGerencia): TurnoCaja
     {
         if (! $turno->isGerenciaOpen()) {
             throw new HttpException(422, 'La validación gerencial ya fue cerrada.');
         }
 
-        $turno->status_gerencia = $this->statusGerenciaFromData(
-            ['status_gerencia' => $statusGerencia],
-            TurnoCaja::STATUS_CERRADO,
-        );
-        $turno->save();
+        return DB::transaction(function () use ($turno, $actor, $statusGerencia) {
+            $turno->status_gerencia = $this->statusGerenciaFromData(
+                ['status_gerencia' => $statusGerencia],
+                TurnoCaja::STATUS_CERRADO,
+            );
+            $turno->save();
 
-        return $turno->refresh()->load($this->turnoRelations());
+            $this->cuentasContablesDetalles->registrarVentasCorteGerencia($turno->refresh(), $actor);
+
+            return $turno->refresh()->load($this->turnoRelations());
+        });
     }
 
     private function statusGerenciaFromData(array $data, string $default): string

@@ -227,6 +227,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::get('/ordenes', [OrdenController::class, 'index']);
     Route::get('/ordenes/cocina', [OrdenController::class, 'cocina']);
     Route::get('/ordenes/hoy', [OrdenController::class, 'hoy']);
+    Route::get('/ordenes/por-fecha', [OrdenController::class, 'porFecha']);
     Route::post('/ordenes', [OrdenController::class, 'store']);
     Route::get('/ordenes/{id}', [OrdenController::class, 'show'])->whereNumber('id');
     Route::put('/ordenes/{id}/status', [OrdenController::class, 'setStatus'])->whereNumber('id');

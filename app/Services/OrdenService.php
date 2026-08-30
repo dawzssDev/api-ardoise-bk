@@ -370,7 +370,7 @@ class OrdenService
     /**
      * Columna KDS según estatus de orden / detalles.
      */
-    private function kitchenBucketForOrden(Orden $orden): ?string
+    public function kitchenBucketForOrden(Orden $orden): ?string
     {
         if ((int) $orden->status === Orden::STATUS_LISTA) {
             return 'listo';
@@ -543,11 +543,12 @@ class OrdenService
     /**
      * @return list<string>
      */
-    private function ordenRelations(): array
+    public function ordenRelations(): array
     {
         return [
             'sucursal:id,negocio_id,type,name',
             'detalles.producto:id,negocio_id,name,price',
+            // No listar require_autori aquí: si la columna aún no existe en prod, el cobro rompe con 500.
             'detalles.tipoVenta:id,negocio_id,name,tipo_descuento,valor_descuento,diferir_cobro,requiere_empleado,status',
             'detalles.empleado:id,negocio_id,first_name,paternal_surname,maternal_surname',
             'detalles.advancedByStaff:'.self::STAFF_WITH,

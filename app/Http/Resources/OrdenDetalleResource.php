@@ -33,6 +33,7 @@ class OrdenDetalleResource extends JsonResource
                     : null,
                 'diferir_cobro' => (bool) $this->tipoVenta->diferir_cobro,
                 'requiere_empleado' => (bool) $this->tipoVenta->requiere_empleado,
+                'require_autori' => (int) ($this->tipoVenta->require_autori ?? 0),
             ] : null),
             'diferido' => (bool) $this->diferido,
             'empleado_id' => $this->empleado_id,

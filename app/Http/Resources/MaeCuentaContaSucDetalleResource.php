@@ -30,6 +30,8 @@ class MaeCuentaContaSucDetalleResource extends JsonResource
             ] : null),
             'tipo_movimiento' => $this->tipo_movimiento,
             'tipoMovimiento' => $this->tipo_movimiento,
+            'tipo_solicitud' => $this->tipoSolicitudLabel(),
+            'tipoSolicitud' => $this->tipoSolicitudLabel(),
             'cuenta_origen_id' => $this->cuenta_origen_id,
             'cuentaOrigen' => $this->cuenta_origen_id,
             'cuenta_origen' => $this->whenLoaded('cuentaOrigen', fn () => $this->cuentaSnippet($this->cuentaOrigen)),
@@ -79,5 +81,16 @@ class MaeCuentaContaSucDetalleResource extends JsonResource
             'titulo_cuenta' => $cuenta->titulo_cuenta,
             'saldo' => (string) $cuenta->saldo,
         ];
+    }
+
+    private function tipoSolicitudLabel(): string
+    {
+        return match ($this->tipo_movimiento) {
+            MaeCuentaContaSucDetalle::TIPO_RETIRO => 'retiro',
+            MaeCuentaContaSucDetalle::TIPO_TRANSFERENCIA => 'transferencia',
+            MaeCuentaContaSucDetalle::TIPO_VENTA_EFECTIVO => 'venta_efectivo',
+            MaeCuentaContaSucDetalle::TIPO_VENTA_TARJETA => 'venta_tarjeta',
+            default => 'deposito',
+        };
     }
 }

@@ -437,6 +437,152 @@ class MaeCuentaContaSucTest extends TestCase
             ->assertJsonPath('data.detalles.0.descripcion_movimiento', 'Para norte');
     }
 
+    public function test_subcuenta_to_maestra_creates_pending_retiro_authorized_by_sucursal(): void
+    {
+        [$user, $negocio, $sucursal, $staff] = $this->actingWithStaffSucursal();
+
+        $maestra = $negocio->cuentasContables()->create([
+            'tipo_cuenta' => MaeCuentaContaSuc::TIPO_MAESTRA,
+            'titulo_cuenta' => 'Maestra',
+            'saldo' => 100,
+            'status' => MaeCuentaContaSuc::STATUS_ACTIVO,
+            'deleted' => MaeCuentaContaSuc::DELETED_NO,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+        $subcuenta = $negocio->cuentasContables()->create([
+            'tipo_cuenta' => MaeCuentaContaSuc::TIPO_SUBCUENTA,
+            'sucursal_id' => $sucursal->id,
+            'titulo_cuenta' => 'Caja sucursal',
+            'saldo' => 150,
+            'status' => MaeCuentaContaSuc::STATUS_ACTIVO,
+            'deleted' => MaeCuentaContaSuc::DELETED_NO,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        Sanctum::actingAs($user);
+        $detalleId = $this->postJson('/api/cuentas-contables-detalles', [
+            'idMaeCuentaContaSuc' => $subcuenta->id,
+            'tipoMovimiento' => 'transferencia',
+            'descripcionMovimiento' => 'Envío a matriz',
+            'montoMovimiento' => 60,
+            'cuentaOrigen' => $subcuenta->id,
+            'cuentaDestino' => $maestra->id,
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.detalle.tipo_movimiento', MaeCuentaContaSucDetalle::TIPO_RETIRO)
+            ->assertJsonPath('data.detalle.tipo_solicitud', 'retiro')
+            ->assertJsonPath('data.detalle.status', MaeCuentaContaSucDetalle::STATUS_PENDIENTE)
+            ->json('data.detalle.id');
+
+        // Al crear no se mueve saldo
+        $this->assertDatabaseHas('mae_cuenta_conta_suc', ['id' => $subcuenta->id, 'saldo' => 150]);
+        $this->assertDatabaseHas('mae_cuenta_conta_suc', ['id' => $maestra->id, 'saldo' => 100]);
+
+        Sanctum::actingAs($staff);
+        $this->getJson('/api/cuentas-contables-detalles/pendientes')
+            ->assertOk()
+            ->assertJsonPath('data.meta.total', 1)
+            ->assertJsonPath('data.detalles.0.id', $detalleId)
+            ->assertJsonPath('data.detalles.0.tipo_movimiento', MaeCuentaContaSucDetalle::TIPO_RETIRO);
+
+        $this->postJson("/api/cuentas-contables-detalles/{$detalleId}/aceptar")
+            ->assertOk()
+            ->assertJsonPath('data.detalle.status', MaeCuentaContaSucDetalle::STATUS_ACEPTADO);
+
+        $this->assertDatabaseHas('mae_cuenta_conta_suc', ['id' => $subcuenta->id, 'saldo' => 90]);
+        $this->assertDatabaseHas('mae_cuenta_conta_suc', ['id' => $maestra->id, 'saldo' => 160]);
+    }
+
+    public function test_reject_retiro_does_not_change_balances(): void
+    {
+        [$user, $negocio, $sucursal, $staff] = $this->actingWithStaffSucursal();
+
+        $maestra = $negocio->cuentasContables()->create([
+            'tipo_cuenta' => MaeCuentaContaSuc::TIPO_MAESTRA,
+            'titulo_cuenta' => 'Maestra',
+            'saldo' => 50,
+            'status' => MaeCuentaContaSuc::STATUS_ACTIVO,
+            'deleted' => MaeCuentaContaSuc::DELETED_NO,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+        $subcuenta = $negocio->cuentasContables()->create([
+            'tipo_cuenta' => MaeCuentaContaSuc::TIPO_SUBCUENTA,
+            'sucursal_id' => $sucursal->id,
+            'titulo_cuenta' => 'Caja sucursal',
+            'saldo' => 80,
+            'status' => MaeCuentaContaSuc::STATUS_ACTIVO,
+            'deleted' => MaeCuentaContaSuc::DELETED_NO,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        Sanctum::actingAs($user);
+        $detalleId = $this->postJson('/api/cuentas-contables-detalles', [
+            'idMaeCuentaContaSuc' => $subcuenta->id,
+            'tipoMovimiento' => 'retiro',
+            'descripcionMovimiento' => 'Retiro a matriz',
+            'montoMovimiento' => 30,
+            'cuentaOrigen' => $subcuenta->id,
+            'cuentaDestino' => $maestra->id,
+        ])->assertCreated()->json('data.detalle.id');
+
+        Sanctum::actingAs($staff);
+        $this->postJson("/api/cuentas-contables-detalles/{$detalleId}/rechazar")
+            ->assertOk()
+            ->assertJsonPath('data.detalle.status', MaeCuentaContaSucDetalle::STATUS_RECHAZADO);
+
+        $this->assertDatabaseHas('mae_cuenta_conta_suc', ['id' => $subcuenta->id, 'saldo' => 80]);
+        $this->assertDatabaseHas('mae_cuenta_conta_suc', ['id' => $maestra->id, 'saldo' => 50]);
+    }
+
+    public function test_staff_from_other_sucursal_cannot_accept_retiro(): void
+    {
+        [$user, $negocio, $sucursal] = $this->actingWithNegocio();
+        $otraSucursal = $negocio->sucursales()->create([
+            'type' => Sucursal::TYPE_SUCURSAL,
+            'name' => 'Norte',
+            'is_active' => true,
+        ]);
+        [, , , $otroStaff] = $this->staffForSucursal($user, $negocio, $otraSucursal, 'otro.retiro');
+
+        $maestra = $negocio->cuentasContables()->create([
+            'tipo_cuenta' => MaeCuentaContaSuc::TIPO_MAESTRA,
+            'titulo_cuenta' => 'Maestra',
+            'saldo' => 10,
+            'status' => MaeCuentaContaSuc::STATUS_ACTIVO,
+            'deleted' => MaeCuentaContaSuc::DELETED_NO,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+        $subcuenta = $negocio->cuentasContables()->create([
+            'tipo_cuenta' => MaeCuentaContaSuc::TIPO_SUBCUENTA,
+            'sucursal_id' => $sucursal->id,
+            'titulo_cuenta' => 'Caja centro',
+            'saldo' => 40,
+            'status' => MaeCuentaContaSuc::STATUS_ACTIVO,
+            'deleted' => MaeCuentaContaSuc::DELETED_NO,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        Sanctum::actingAs($user);
+        $detalleId = $this->postJson('/api/cuentas-contables-detalles', [
+            'idMaeCuentaContaSuc' => $subcuenta->id,
+            'tipoMovimiento' => 'transferencia',
+            'descripcionMovimiento' => 'A matriz',
+            'montoMovimiento' => 15,
+            'cuentaOrigen' => $subcuenta->id,
+            'cuentaDestino' => $maestra->id,
+        ])->assertCreated()->json('data.detalle.id');
+
+        Sanctum::actingAs($otroStaff);
+        $this->postJson("/api/cuentas-contables-detalles/{$detalleId}/aceptar")
+            ->assertForbidden();
+    }
+
     /**
      * @return array{0: User, 1: \App\Models\Negocio, 2: Sucursal}
      */

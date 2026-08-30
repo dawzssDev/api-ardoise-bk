@@ -27,6 +27,7 @@ class TipoVentaTest extends TestCase
             'name' => 'Policía',
             'tipo_descuento' => TipoVenta::TIPO_PORCENTAJE,
             'valor_descuento' => 20,
+            'require_autori' => 1,
         ]);
 
         $create->assertCreated()
@@ -34,6 +35,7 @@ class TipoVentaTest extends TestCase
             ->assertJsonPath('data.tipo_venta.name', 'Policía')
             ->assertJsonPath('data.tipo_venta.tipo_descuento', 'porcentaje')
             ->assertJsonPath('data.tipo_venta.valor_descuento', '20.00')
+            ->assertJsonPath('data.tipo_venta.require_autori', 1)
             ->assertJsonPath('data.tipo_venta.status', true);
 
         $id = $create->json('data.tipo_venta.id');
@@ -42,14 +44,21 @@ class TipoVentaTest extends TestCase
             'name' => 'Policía -20%',
             'tipo_descuento' => TipoVenta::TIPO_PORCENTAJE,
             'valor_descuento' => 25,
+            'require_autori' => 0,
         ])
             ->assertOk()
             ->assertJsonPath('data.tipo_venta.name', 'Policía -20%')
-            ->assertJsonPath('data.tipo_venta.valor_descuento', '25.00');
+            ->assertJsonPath('data.tipo_venta.valor_descuento', '25.00')
+            ->assertJsonPath('data.tipo_venta.require_autori', 0);
 
         $this->getJson('/api/tipos-venta')
             ->assertOk()
-            ->assertJsonPath('data.tipos_venta.0.name', 'Policía -20%');
+            ->assertJsonPath('data.tipos_venta.0.name', 'Policía -20%')
+            ->assertJsonPath('data.tipos_venta.0.require_autori', 0);
+
+        $this->getJson('/api/tipos-venta/'.$id)
+            ->assertOk()
+            ->assertJsonPath('data.tipo_venta.require_autori', 0);
 
         $this->deleteJson('/api/tipos-venta/'.$id)
             ->assertOk()

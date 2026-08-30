@@ -13,9 +13,26 @@ class MaeCuentaContaSucDetalle extends Model
 
     public const TIPO_TRANSFERENCIA = 'transferencia';
 
+    /** Solicitud de retiro sucursal → matriz (pendiente de autorización en sucursal). */
+    public const TIPO_RETIRO = 'retiro';
+
+    /** Venta en efectivo del corte gerencial → abona cuenta matriz. */
+    public const TIPO_VENTA_EFECTIVO = 'venta_efectivo';
+
+    /** Venta con tarjeta del corte gerencial → abona cuenta matriz. */
+    public const TIPO_VENTA_TARJETA = 'venta_tarjeta';
+
     public const TIPOS_MOVIMIENTO = [
         self::TIPO_DEPOSITO,
         self::TIPO_TRANSFERENCIA,
+        self::TIPO_RETIRO,
+        self::TIPO_VENTA_EFECTIVO,
+        self::TIPO_VENTA_TARJETA,
+    ];
+
+    public const TIPOS_VENTA_CORTE = [
+        self::TIPO_VENTA_EFECTIVO,
+        self::TIPO_VENTA_TARJETA,
     ];
 
     public const STATUS_INACTIVO = 0;
@@ -92,9 +109,22 @@ class MaeCuentaContaSucDetalle extends Model
             'deposit' => self::TIPO_DEPOSITO,
             'transferencia' => self::TIPO_TRANSFERENCIA,
             'transfer' => self::TIPO_TRANSFERENCIA,
+            'retiro' => self::TIPO_RETIRO,
+            'withdrawal' => self::TIPO_RETIRO,
+            'venta_efectivo' => self::TIPO_VENTA_EFECTIVO,
+            'venta_en_efectivo' => self::TIPO_VENTA_EFECTIVO,
+            'ventaefectivo' => self::TIPO_VENTA_EFECTIVO,
+            'venta_tarjeta' => self::TIPO_VENTA_TARJETA,
+            'venta_con_tarjeta' => self::TIPO_VENTA_TARJETA,
+            'ventatarjeta' => self::TIPO_VENTA_TARJETA,
         ];
 
         return $aliases[$key] ?? null;
+    }
+
+    public function isVentaCorte(): bool
+    {
+        return in_array($this->tipo_movimiento, self::TIPOS_VENTA_CORTE, true);
     }
 
     public function isDeleted(): bool
@@ -105,6 +135,11 @@ class MaeCuentaContaSucDetalle extends Model
     public function isPendiente(): bool
     {
         return (int) $this->status === self::STATUS_PENDIENTE;
+    }
+
+    public function isRetiro(): bool
+    {
+        return $this->tipo_movimiento === self::TIPO_RETIRO;
     }
 
     public static function labelForStatus(int $status): string

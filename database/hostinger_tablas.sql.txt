@@ -998,6 +998,7 @@ TIPOS DE VENTA (catálogo + descuento por línea de orden)
 -- valor_descuento: requerido solo si porcentaje o monto_fijo; NULL si ninguno/gratis
 -- diferir_cobro: si 1, la línea NO se cobra hoy → cuenta por cobrar
 -- requiere_empleado: si 1, el front debe exigir seleccionar empleado
+-- require_autori: 0 = no requiere autorización, 1 = sí requiere autorización
 CREATE TABLE `tb_tipos_venta` (
   `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
   `negocio_id` bigint UNSIGNED NOT NULL,
@@ -1006,6 +1007,7 @@ CREATE TABLE `tb_tipos_venta` (
   `valor_descuento` decimal(10,2) NULL DEFAULT NULL,
   `diferir_cobro` tinyint(1) NOT NULL DEFAULT 0,
   `requiere_empleado` tinyint(1) NOT NULL DEFAULT 0,
+  `require_autori` tinyint UNSIGNED NOT NULL DEFAULT 0,
   `status` tinyint(1) NOT NULL DEFAULT 1,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -1043,6 +1045,17 @@ ALTER tb_tipos_venta — diferir_cobro + requiere_empleado
 ALTER TABLE `tb_tipos_venta`
   ADD COLUMN `diferir_cobro` tinyint(1) NOT NULL DEFAULT 0 AFTER `valor_descuento`,
   ADD COLUMN `requiere_empleado` tinyint(1) NOT NULL DEFAULT 0 AFTER `diferir_cobro`;
+
+--------------------------------------------------------------------------------
+ALTER tb_tipos_venta — require_autori
+--------------------------------------------------------------------------------
+-- 0 = no requiere autorización, 1 = sí requiere autorización
+-- Solo si ya creaste `tb_tipos_venta` SIN esta columna:
+ALTER TABLE `tb_tipos_venta`
+  ADD COLUMN `require_autori` tinyint UNSIGNED NOT NULL DEFAULT 0 AFTER `requiere_empleado`;
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_08_29_220000_add_require_autori_to_tb_tipos_venta_table', 1);
 
 --------------------------------------------------------------------------------
 ALTER orden_detalles — diferido + empleado_id
@@ -1411,9 +1424,12 @@ CREATE TABLE `mae_cuenta_conta_suc` (
     FOREIGN KEY (`updated_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- tipo_movimiento: deposito | transferencia
--- status detalle: 0 inactivo | 1 aceptado | 2 pendiente (maestra→subcuenta) | 3 rechazado
--- cuenta_origen_id: NULL en depósito (opcional); obligatorio en transferencia
+-- tipo_movimiento: deposito | transferencia | retiro | venta_efectivo | venta_tarjeta
+-- status detalle: 0 inactivo | 1 aceptado | 2 pendiente | 3 rechazado
+--   pendiente transferencia = maestra→subcuenta (descuenta maestra al crear; abona sucursal al aceptar)
+--   pendiente retiro = subcuenta→maestra (sin mover saldo al crear; descuenta sucursal + abona maestra al aceptar)
+--   venta_efectivo / venta_tarjeta = corte gerencial (abona solo matriz; origen = subcuenta; status aceptado)
+-- cuenta_origen_id: NULL en depósito (opcional); obligatorio en transferencia/retiro
 -- monto_movimiento: monto del movimiento
 -- cuenta_destino_id: cuenta que recibe (si no se envía, usa mae_cuenta_conta_suc_id)
 CREATE TABLE `mae_cuenta_conta_suc_detalle` (

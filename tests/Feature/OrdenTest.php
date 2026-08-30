@@ -411,6 +411,48 @@ class OrdenTest extends TestCase
             ->assertJsonPath('data.nuevo.0.id', $ordenId);
     }
 
+    public function test_por_fecha_defaults_to_today_and_filters_by_chosen_date(): void
+    {
+        [$user, $negocio, $sucursal, $esquite] = $this->seedPosCatalog();
+
+        Sanctum::actingAs($user);
+        $this->abrirCaja($sucursal->id, 50);
+
+        $hoyId = $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Hoy',
+            'sucursal_id' => $sucursal->id,
+            'tipo_pago' => 'efectivo',
+            'detalles' => [
+                ['producto_id' => $esquite->id, 'cantidad' => 1, 'precio' => 50],
+            ],
+        ])->assertCreated()->json('data.orden.id');
+
+        $ayer = now()->subDay()->toDateString();
+        $ayerId = \App\Models\Orden::query()->findOrFail($hoyId)->replicate();
+        $ayerId->customer_name = 'Ayer';
+        $ayerId->order_number = 999001;
+        $ayerId->created_at = now()->subDay()->setTime(12, 0);
+        $ayerId->updated_at = $ayerId->created_at;
+        $ayerId->save();
+
+        $hoyResp = $this->getJson('/api/ordenes/por-fecha?sucursal_id='.$sucursal->id)
+            ->assertOk()
+            ->assertJsonPath('data.fecha', now()->toDateString());
+
+        $hoyIds = collect($hoyResp->json('data.ordenes'))->pluck('id');
+        $this->assertTrue($hoyIds->contains($hoyId));
+        $this->assertFalse($hoyIds->contains($ayerId->id));
+
+        $this->getJson('/api/ordenes/por-fecha?sucursal_id='.$sucursal->id.'&fecha='.$ayer)
+            ->assertOk()
+            ->assertJsonPath('data.fecha', $ayer)
+            ->assertJsonPath('data.ordenes.0.id', $ayerId->id)
+            ->assertJsonPath('data.sucursal.id', $sucursal->id);
+
+        $this->getJson('/api/ordenes/por-fecha?sucursal_id='.$sucursal->id.'&fecha=29-08-2026')
+            ->assertStatus(422);
+    }
+
     public function test_can_cancel_detalle_negates_price_and_recalculates_orden_total(): void
     {
         [$user, $negocio, $sucursal, $esquite, $ramen] = $this->seedPosCatalog();

@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Models\MaeCuentaContaSuc;
+use App\Models\MaeCuentaContaSucDetalle;
 use App\Models\Role;
 use App\Models\Sucursal;
 use App\Models\TurnoCaja;
@@ -156,22 +158,56 @@ class TurnoCajaTest extends TestCase
         $permissions['corteCajaCajera'] = true;
         $staff->role->update(['permissions' => $permissions]);
 
+        $maestra = $negocio->cuentasContables()->create([
+            'tipo_cuenta' => MaeCuentaContaSuc::TIPO_MAESTRA,
+            'titulo_cuenta' => 'CUENTA MATRIZ',
+            'saldo' => 1000,
+            'status' => MaeCuentaContaSuc::STATUS_ACTIVO,
+            'deleted' => MaeCuentaContaSuc::DELETED_NO,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+        $subcuenta = $negocio->cuentasContables()->create([
+            'tipo_cuenta' => MaeCuentaContaSuc::TIPO_SUBCUENTA,
+            'sucursal_id' => $sucursal->id,
+            'titulo_cuenta' => 'SUCURSAL '.$sucursal->name,
+            'saldo' => 500,
+            'status' => MaeCuentaContaSuc::STATUS_ACTIVO,
+            'deleted' => MaeCuentaContaSuc::DELETED_NO,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
         Sanctum::actingAs($staff);
         $turnoId = $this->postJson('/api/turnos-caja/abrir', [
             'fondo_inicial' => 100,
         ])->assertCreated()->json('data.turno.id');
 
+        $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Efectivo',
+            'tipo_pago' => 'efectivo',
+            'detalles' => [['producto_id' => $producto->id, 'cantidad' => 2, 'precio' => 50]],
+        ])->assertCreated();
+
+        $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Tarjeta',
+            'tipo_pago' => 'tarjeta',
+            'detalles' => [['producto_id' => $producto->id, 'cantidad' => 1, 'precio' => 80]],
+        ])->assertCreated();
+
         $this->postJson("/api/turnos-caja/{$turnoId}/cerrar", [
-            'efectivo_real' => 100,
+            'efectivo_real' => 200,
         ])->assertOk();
 
         Sanctum::actingAs($user);
         $this->postJson("/api/turnos-caja/{$turnoId}/cerrar", [
-            'efectivo_real' => 100,
+            'efectivo_real' => 200,
         ])
             ->assertOk()
             ->assertJsonPath('data.turno.status_administrador', TurnoCaja::STATUS_CERRADO)
-            ->assertJsonPath('data.turno.status_gerencia', TurnoCaja::STATUS_ABIERTO);
+            ->assertJsonPath('data.turno.status_gerencia', TurnoCaja::STATUS_ABIERTO)
+            ->assertJsonPath('data.turno.total_ventas_efectivo', '100.00')
+            ->assertJsonPath('data.turno.total_ventas_tarjeta', '80.00');
 
         $this->postJson("/api/turnos-caja/{$turnoId}/cerrar", [
             'status_gerencia' => 'cerrado',
@@ -186,6 +222,31 @@ class TurnoCajaTest extends TestCase
             'status_administrador' => TurnoCaja::STATUS_CERRADO,
             'status_gerencia' => TurnoCaja::STATUS_CERRADO,
         ]);
+
+        $this->assertDatabaseHas('mae_cuenta_conta_suc_detalle', [
+            'tipo_movimiento' => MaeCuentaContaSucDetalle::TIPO_VENTA_EFECTIVO,
+            'cuenta_origen_id' => $subcuenta->id,
+            'cuenta_destino_id' => $maestra->id,
+            'monto_movimiento' => 100.00,
+            'status' => MaeCuentaContaSucDetalle::STATUS_ACEPTADO,
+        ]);
+        $this->assertDatabaseHas('mae_cuenta_conta_suc_detalle', [
+            'tipo_movimiento' => MaeCuentaContaSucDetalle::TIPO_VENTA_TARJETA,
+            'cuenta_origen_id' => $subcuenta->id,
+            'cuenta_destino_id' => $maestra->id,
+            'monto_movimiento' => 80.00,
+            'status' => MaeCuentaContaSucDetalle::STATUS_ACEPTADO,
+        ]);
+
+        // Solo abona matriz; sucursal no se descuenta
+        $this->assertDatabaseHas('mae_cuenta_conta_suc', ['id' => $maestra->id, 'saldo' => 1180.00]);
+        $this->assertDatabaseHas('mae_cuenta_conta_suc', ['id' => $subcuenta->id, 'saldo' => 500.00]);
+
+        $descripcion = MaeCuentaContaSucDetalle::query()
+            ->where('tipo_movimiento', MaeCuentaContaSucDetalle::TIPO_VENTA_EFECTIVO)
+            ->value('descripcion_movimiento');
+        $this->assertStringContainsString('CORTE del', (string) $descripcion);
+        $this->assertStringContainsString($sucursal->name, (string) $descripcion);
     }
 
     public function test_login_and_me_expose_caja_status_for_staff(): void

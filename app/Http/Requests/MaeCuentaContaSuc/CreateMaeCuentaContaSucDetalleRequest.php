@@ -106,7 +106,12 @@ class CreateMaeCuentaContaSucDetalleRequest extends FormRequest
                 ),
             ];
 
-        $esTransferencia = $this->input('tipo_movimiento') === MaeCuentaContaSucDetalle::TIPO_TRANSFERENCIA;
+        $esConCuentas = in_array($this->input('tipo_movimiento'), [
+            MaeCuentaContaSucDetalle::TIPO_TRANSFERENCIA,
+            MaeCuentaContaSucDetalle::TIPO_RETIRO,
+            MaeCuentaContaSucDetalle::TIPO_VENTA_EFECTIVO,
+            MaeCuentaContaSucDetalle::TIPO_VENTA_TARJETA,
+        ], true);
 
         return [
             'mae_cuenta_conta_suc_id' => $cuentaRules,
@@ -114,7 +119,7 @@ class CreateMaeCuentaContaSucDetalleRequest extends FormRequest
             'descripcion_movimiento' => ['required', 'string', 'max:500'],
             'monto_movimiento' => ['required', 'numeric', 'gt:0'],
             'cuenta_origen_id' => [
-                Rule::requiredIf($esTransferencia),
+                Rule::requiredIf($esConCuentas),
                 'nullable',
                 'integer',
                 Rule::exists('mae_cuenta_conta_suc', 'id')->where(
@@ -124,7 +129,7 @@ class CreateMaeCuentaContaSucDetalleRequest extends FormRequest
                 ),
             ],
             'cuenta_destino_id' => [
-                Rule::requiredIf($esTransferencia),
+                Rule::requiredIf($esConCuentas),
                 'sometimes',
                 'nullable',
                 'integer',
@@ -133,7 +138,7 @@ class CreateMaeCuentaContaSucDetalleRequest extends FormRequest
                         ->where('negocio_id', $negocioId)
                         ->where('deleted', 0)
                 ),
-                Rule::notIn($esTransferencia ? [(int) $this->input('cuenta_origen_id')] : []),
+                Rule::notIn($esConCuentas ? [(int) $this->input('cuenta_origen_id')] : []),
             ],
             'status' => ['sometimes', 'integer', Rule::in([MaeCuentaContaSucDetalle::STATUS_INACTIVO, MaeCuentaContaSucDetalle::STATUS_ACTIVO])],
         ];
@@ -148,15 +153,15 @@ class CreateMaeCuentaContaSucDetalleRequest extends FormRequest
             'mae_cuenta_conta_suc_id.required' => 'La cuenta contable es obligatoria.',
             'mae_cuenta_conta_suc_id.exists' => 'La cuenta contable no existe, no pertenece a tu negocio o está eliminada.',
             'tipo_movimiento.required' => 'El tipo de movimiento es obligatorio.',
-            'tipo_movimiento.in' => 'El tipo de movimiento debe ser deposito o transferencia.',
+            'tipo_movimiento.in' => 'El tipo de movimiento debe ser deposito, transferencia, retiro, venta_efectivo o venta_tarjeta.',
             'descripcion_movimiento.required' => 'La descripción del movimiento es obligatoria.',
             'descripcion_movimiento.max' => 'La descripción no puede superar :max caracteres.',
             'monto_movimiento.required' => 'El monto del movimiento es obligatorio.',
             'monto_movimiento.gt' => 'El monto del movimiento debe ser mayor a cero.',
-            'cuenta_origen_id.required' => 'La cuenta origen es obligatoria cuando el movimiento es transferencia.',
+            'cuenta_origen_id.required' => 'La cuenta origen es obligatoria para transferencia, retiro o venta de corte.',
             'cuenta_origen_id.exists' => 'La cuenta origen no existe, no pertenece a tu negocio o está eliminada.',
             'cuenta_destino_id.exists' => 'La cuenta destino no existe, no pertenece a tu negocio o está eliminada.',
-            'cuenta_destino_id.required' => 'La cuenta destino es obligatoria cuando el movimiento es transferencia.',
+            'cuenta_destino_id.required' => 'La cuenta destino es obligatoria para transferencia, retiro o venta de corte.',
             'cuenta_destino_id.not_in' => 'La cuenta origen y la cuenta destino deben ser distintas.',
             'status.in' => 'El status debe ser 1 (activo) o 0 (inactivo).',
         ];

@@ -5,11 +5,13 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Orden\CancelarOrdenDetallesRequest;
 use App\Http\Requests\Orden\CreateOrdenRequest;
+use App\Http\Requests\Orden\ListOrdenesPorFechaRequest;
 use App\Http\Requests\Orden\UpdateOrdenDetalleEntregaRequest;
 use App\Http\Requests\Orden\UpdateOrdenDetalleStatusRequest;
 use App\Http\Requests\Orden\UpdateOrdenStatusRequest;
 use App\Http\Resources\OrdenDetalleResource;
 use App\Http\Resources\OrdenResource;
+use App\Services\OrdenPorFechaService;
 use App\Services\OrdenService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,6 +21,7 @@ class OrdenController extends Controller
 {
     public function __construct(
         private readonly OrdenService $ordenes,
+        private readonly OrdenPorFechaService $ordenesPorFecha,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -109,26 +112,28 @@ class OrdenController extends Controller
             return $this->errorResponse($e);
         }
 
-        $nuevo = OrdenResource::collection($payload['nuevo'])->resolve();
-        $enPreparacion = OrdenResource::collection($payload['en_preparacion'])->resolve();
-        $listo = OrdenResource::collection($payload['listo'])->resolve();
+        return $this->ordenesPorFechaResponse($payload);
+    }
 
-        return response()->json([
-            'success' => true,
-            'message' => 'ok',
-            'data' => [
-                'fecha' => $payload['fecha'],
-                'sucursal' => $payload['sucursal'],
-                'ordenes' => OrdenResource::collection($payload['ordenes'])->resolve(),
-                'nuevo' => $nuevo,
-                'en_preparacion' => $enPreparacion,
-                'listo' => $listo,
-                'activos' => $nuevo,
-                'en_proceso' => $enPreparacion,
-                'finalizados' => $listo,
-            ],
-            'errors' => null,
-        ]);
+    /**
+     * Órdenes de un día (default: hoy). Query: ?fecha=YYYY-MM-DD&sucursal_id=
+     * Maestro: sucursal_id requerido. Staff: usa su sucursal.
+     */
+    public function porFecha(ListOrdenesPorFechaRequest $request): JsonResponse
+    {
+        try {
+            $negocio = $this->ordenes->negocioForUser($request->user());
+            $payload = $this->ordenesPorFecha->list(
+                $negocio,
+                $request->user(),
+                $request->validated('fecha'),
+                $request->filled('sucursal_id') ? (int) $request->validated('sucursal_id') : null,
+            );
+        } catch (HttpException $e) {
+            return $this->errorResponse($e);
+        }
+
+        return $this->ordenesPorFechaResponse($payload);
     }
 
     /**
@@ -294,6 +299,40 @@ class OrdenController extends Controller
         }
 
         return null;
+    }
+
+    /**
+     * @param  array{
+     *     fecha: string,
+     *     sucursal: array{id: int, type: string, name: string},
+     *     ordenes: list<\App\Models\Orden>,
+     *     nuevo: list<\App\Models\Orden>,
+     *     en_preparacion: list<\App\Models\Orden>,
+     *     listo: list<\App\Models\Orden>
+     * }  $payload
+     */
+    private function ordenesPorFechaResponse(array $payload): JsonResponse
+    {
+        $nuevo = OrdenResource::collection($payload['nuevo'])->resolve();
+        $enPreparacion = OrdenResource::collection($payload['en_preparacion'])->resolve();
+        $listo = OrdenResource::collection($payload['listo'])->resolve();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'ok',
+            'data' => [
+                'fecha' => $payload['fecha'],
+                'sucursal' => $payload['sucursal'],
+                'ordenes' => OrdenResource::collection($payload['ordenes'])->resolve(),
+                'nuevo' => $nuevo,
+                'en_preparacion' => $enPreparacion,
+                'listo' => $listo,
+                'activos' => $nuevo,
+                'en_proceso' => $enPreparacion,
+                'finalizados' => $listo,
+            ],
+            'errors' => null,
+        ]);
     }
 
     private function errorResponse(HttpException $e): JsonResponse

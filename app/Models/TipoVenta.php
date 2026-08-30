@@ -32,6 +32,7 @@ class TipoVenta extends Model
         'valor_descuento',
         'diferir_cobro',
         'requiere_empleado',
+        'require_autori',
         'status',
     ];
 
@@ -41,6 +42,7 @@ class TipoVenta extends Model
             'valor_descuento' => 'decimal:2',
             'diferir_cobro' => 'boolean',
             'requiere_empleado' => 'boolean',
+            'require_autori' => 'integer',
             'status' => 'boolean',
         ];
     }
