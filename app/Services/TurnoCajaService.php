@@ -397,12 +397,26 @@ class TurnoCajaService
         $proveedorId = $this->resolveProveedorIdForGasto($turno, $tipo, $data['proveedor_id'] ?? null);
 
         return DB::transaction(function () use ($turno, $actor, $data, $tipo, $monto, $proveedorId) {
+            /** @var TurnoCaja $turnoLocked */
+            $turnoLocked = TurnoCaja::query()->whereKey($turno->id)->lockForUpdate()->firstOrFail();
+
+            $this->syncTurnoVentasWithOrdenes($turnoLocked);
+            $disponible = $this->efectivoDisponibleParaGasto($turnoLocked);
+            if ($monto - $disponible > 0.009) {
+                $fmtDisponible = number_format($disponible, 2, '.', '');
+                $fmtMonto = number_format($monto, 2, '.', '');
+                throw new HttpException(
+                    422,
+                    "El monto ({$fmtMonto}) supera el efectivo en caja. Máximo permitido: {$fmtDisponible} (fondo inicial + ventas en efectivo − gastos ya registrados).",
+                );
+            }
+
             $gasto = GastoEnTurno::query()->create([
-                'turno_caja_id' => $turno->id,
-                'id_user' => $actor instanceof Staff ? $actor->id : $turno->id_user,
-                'user_id' => $actor instanceof User ? $actor->id : $this->auditUserId($actor, $turno->negocio),
-                'negocio_id' => $turno->negocio_id,
-                'sucursal_id' => $turno->sucursal_id,
+                'turno_caja_id' => $turnoLocked->id,
+                'id_user' => $actor instanceof Staff ? $actor->id : $turnoLocked->id_user,
+                'user_id' => $actor instanceof User ? $actor->id : $this->auditUserId($actor, $turnoLocked->negocio),
+                'negocio_id' => $turnoLocked->negocio_id,
+                'sucursal_id' => $turnoLocked->sucursal_id,
                 'tipo_gasto' => $tipo,
                 'proveedor_id' => $proveedorId,
                 'descripcion' => trim((string) $data['descripcion']),
@@ -410,10 +424,22 @@ class TurnoCajaService
                 'fecha_registro' => now(),
             ]);
 
-            $this->syncGastoTotals($turno);
+            $this->syncGastoTotals($turnoLocked);
 
             return $gasto->refresh();
         });
+    }
+
+    /**
+     * Efectivo en caja para salidas: fondo inicial + ventas efectivo − gastos del turno.
+     */
+    public function efectivoDisponibleParaGasto(TurnoCaja $turno): float
+    {
+        $fondo = round((float) $turno->fondo_inicial, 2);
+        $ventasEfectivo = $this->sumVentasByPayment($turno)['efectivo'];
+        $gastos = $this->sumGastosByTipo($turno)['total'];
+
+        return round(max(0, $fondo + $ventasEfectivo - $gastos), 2);
     }
 
     private function resolveProveedorIdForGasto(TurnoCaja $turno, string $tipo, mixed $proveedorId): ?int
@@ -768,7 +794,37 @@ class TurnoCajaService
     }
 
     /**
-     * Cierre de gerencia: status_gerencia + abona ventas efectivo/tarjeta a cuenta matriz.
+     * Actualiza solo los montos de validación gerencial.
+     * Maestro o staff con corteCaja / corteCajaGerenteAdmo.
+     *
+     * @param  array{
+     *     efectivo_gerencia: float|int|string,
+     *     terminal_gerencia: float|int|string,
+     *     diferencia_gerencia: float|int|string,
+     *     date_validation_gerencia?: string|null
+     * }  $data
+     */
+    public function actualizarValidacionGerencia(
+        TurnoCaja $turno,
+        User|Staff $actor,
+        array $data,
+    ): TurnoCaja {
+        $this->assertCanCerrarGerencia($actor, $turno);
+
+        $turno->efectivo_gerencia = round((float) $data['efectivo_gerencia'], 2);
+        $turno->terminal_gerencia = round((float) $data['terminal_gerencia'], 2);
+        $turno->diferencia_gerencia = round((float) $data['diferencia_gerencia'], 2);
+        $turno->date_validation_gerencia = ! empty($data['date_validation_gerencia'])
+            ? $data['date_validation_gerencia']
+            : now();
+        $turno->user_id_date_validation_gerencia = $this->auditUserId($actor, $turno->negocio);
+        $turno->save();
+
+        return $turno->refresh()->load($this->turnoRelations());
+    }
+
+    /**
+     * Cierre de gerencia: status_gerencia + abona efectivo_gerencia / terminal_gerencia a cuenta matriz.
      * No toca status_administrador ni recalcula totales del corte.
      */
     private function cerrarPorGerencia(TurnoCaja $turno, User|Staff $actor, mixed $statusGerencia): TurnoCaja
@@ -1221,6 +1277,7 @@ class TurnoCajaService
         return [
             'cajera:id,negocio_id,username,sucursal_id,empleado_id,status',
             'user:id,name,email',
+            'validadoPorGerencia:id,name,email',
             'sucursal:id,negocio_id,type,name',
         ];
     }

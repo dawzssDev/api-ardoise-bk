@@ -885,6 +885,11 @@ CREATE TABLE `tb_turnos_cajas` (
   `status` varchar(20) NOT NULL DEFAULT 'abierto',
   `status_administrador` varchar(20) NOT NULL DEFAULT 'abierto',
   `status_gerencia` varchar(20) NOT NULL DEFAULT 'abierto',
+  `efectivo_gerencia` decimal(12,2) NULL DEFAULT NULL,
+  `terminal_gerencia` decimal(12,2) NULL DEFAULT NULL,
+  `diferencia_gerencia` decimal(12,2) NULL DEFAULT NULL,
+  `date_validation_gerencia` timestamp NULL DEFAULT NULL,
+  `user_id_date_validation_gerencia` bigint UNSIGNED NULL DEFAULT NULL,
   `fecha_apertura` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `fecha_cierre` timestamp NULL DEFAULT NULL,
   `fecha_cierre_cajera` timestamp NULL DEFAULT NULL,
@@ -901,10 +906,13 @@ CREATE TABLE `tb_turnos_cajas` (
   KEY `tb_turnos_cajas_negocio_sucursal_status_gerencia_index` (`negocio_id`, `sucursal_id`, `status_gerencia`),
   KEY `tb_turnos_cajas_id_user_status_index` (`id_user`, `status`),
   KEY `tb_turnos_cajas_user_id_status_index` (`user_id`, `status`),
+  KEY `tb_turnos_cajas_user_val_ger_fk` (`user_id_date_validation_gerencia`),
   CONSTRAINT `tb_turnos_cajas_id_user_foreign`
     FOREIGN KEY (`id_user`) REFERENCES `staff` (`id`) ON DELETE SET NULL,
   CONSTRAINT `tb_turnos_cajas_user_id_foreign`
     FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `tb_turnos_cajas_user_val_ger_fk`
+    FOREIGN KEY (`user_id_date_validation_gerencia`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `tb_turnos_cajas_negocio_id_foreign`
     FOREIGN KEY (`negocio_id`) REFERENCES `negocios` (`id`) ON DELETE CASCADE,
   CONSTRAINT `tb_turnos_cajas_sucursal_id_foreign`
@@ -1498,7 +1506,7 @@ CREATE TABLE `mae_cuenta_conta_suc` (
 -- status detalle: 0 inactivo | 1 aceptado | 2 pendiente | 3 rechazado
 --   pendiente transferencia = maestra→subcuenta (descuenta maestra al crear; abona sucursal al aceptar)
 --   pendiente retiro = subcuenta→maestra (sin mover saldo al crear; descuenta sucursal + abona maestra al aceptar)
---   venta_efectivo / venta_tarjeta = corte gerencial (abona solo matriz; origen = subcuenta; status aceptado)
+--   venta_efectivo / venta_tarjeta = corte gerencial (montos = efectivo_gerencia / terminal_gerencia; abona solo matriz; origen = subcuenta; status aceptado)
 -- cuenta_origen_id: NULL en depósito (opcional); obligatorio en transferencia/retiro
 -- monto_movimiento: monto del movimiento
 -- cuenta_destino_id: cuenta que recibe (si no se envía, usa mae_cuenta_conta_suc_id)
@@ -1624,6 +1632,22 @@ CREATE orden_pagos — cobro combinado
 -- Si `ordenes` ya existe, ejecuta el CREATE de la sección 1m2 y:
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_09_03_100000_create_orden_pagos_table', 1);
+
+================================================================================
+ALTER tb_turnos_cajas — validación gerencia (efectivo/terminal/diferencia)
+================================================================================
+ALTER TABLE `tb_turnos_cajas`
+  ADD COLUMN `efectivo_gerencia` decimal(12,2) NULL DEFAULT NULL AFTER `status_gerencia`,
+  ADD COLUMN `terminal_gerencia` decimal(12,2) NULL DEFAULT NULL AFTER `efectivo_gerencia`,
+  ADD COLUMN `diferencia_gerencia` decimal(12,2) NULL DEFAULT NULL AFTER `terminal_gerencia`,
+  ADD COLUMN `date_validation_gerencia` timestamp NULL DEFAULT NULL AFTER `diferencia_gerencia`,
+  ADD COLUMN `user_id_date_validation_gerencia` bigint UNSIGNED NULL DEFAULT NULL AFTER `date_validation_gerencia`,
+  ADD KEY `tb_turnos_cajas_user_val_ger_fk` (`user_id_date_validation_gerencia`),
+  ADD CONSTRAINT `tb_turnos_cajas_user_val_ger_fk`
+    FOREIGN KEY (`user_id_date_validation_gerencia`) REFERENCES `users` (`id`) ON DELETE SET NULL;
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_09_03_140000_add_validacion_gerencia_to_tb_turnos_cajas_table', 1);
 
 ================================================================================
 FIN

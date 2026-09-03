@@ -94,6 +94,51 @@ class GastoEnTurnoTest extends TestCase
             ->assertJsonPath('data.meta.total', 3);
     }
 
+    public function test_cannot_register_gasto_greater_than_fondo_plus_ventas_efectivo(): void
+    {
+        [$user, $negocio, $sucursal, $staff] = $this->seedCajaContext();
+
+        $categoria = $negocio->categoriaProductos()->create(['name' => 'Bebidas']);
+        $producto = $negocio->productos()->create([
+            'categoria_producto_id' => $categoria->id,
+            'name' => 'Agua',
+            'price' => 1500,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        Sanctum::actingAs($staff);
+        $turnoId = $this->postJson('/api/turnos-caja/abrir', [
+            'fondo_inicial' => 2000,
+        ])->assertCreated()->json('data.turno.id');
+
+        $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Efectivo',
+            'tipo_pago' => 'efectivo',
+            'detalles' => [['producto_id' => $producto->id, 'cantidad' => 1, 'precio' => 1500]],
+        ])->assertCreated();
+
+        $this->postJson("/api/turnos-caja/{$turnoId}/gastos", [
+            'tipo' => 'Retiro de efectivo',
+            'descripcion' => 'Excede caja',
+            'monto' => 3500.01,
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('success', false);
+
+        $this->postJson("/api/turnos-caja/{$turnoId}/gastos", [
+            'tipo' => 'Retiro de efectivo',
+            'descripcion' => 'Tope de caja',
+            'monto' => 3500,
+        ])->assertCreated();
+
+        $this->postJson("/api/turnos-caja/{$turnoId}/gastos", [
+            'tipo' => 'Gasto operativo',
+            'descripcion' => 'Ya no hay efectivo',
+            'monto' => 0.01,
+        ])->assertStatus(422);
+    }
+
     public function test_cannot_register_gasto_without_open_turno(): void
     {
         [$user, $negocio, $sucursal, $staff] = $this->seedCajaContext();

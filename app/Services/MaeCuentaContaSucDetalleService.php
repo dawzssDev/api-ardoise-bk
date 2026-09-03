@@ -100,8 +100,8 @@ class MaeCuentaContaSucDetalleService
     }
 
     /**
-     * Al autorizar corte gerencial: abona a cuenta matriz las ventas efectivo/tarjeta
-     * con origen = subcuenta de la sucursal (sin descontar saldo de sucursal).
+     * Al autorizar corte gerencial: abona a cuenta matriz el efectivo_gerencia
+     * y terminal_gerencia capturados por gerencia (no las ventas del POS).
      *
      * @return list<MaeCuentaContaSucDetalle>
      */
@@ -137,6 +137,16 @@ class MaeCuentaContaSucDetalleService
             );
         }
 
+        $efectivoGerencia = $turno->efectivo_gerencia;
+        $terminalGerencia = $turno->terminal_gerencia;
+
+        if ($efectivoGerencia === null || $terminalGerencia === null) {
+            throw new HttpException(
+                422,
+                'Debes registrar la validación gerencial (efectivo_gerencia y terminal_gerencia) antes de cerrar el corte de gerencia.',
+            );
+        }
+
         $descripcion = $this->descripcionCorteGerencia($turno);
         $auditId = $this->auditUserId($actor, $turno->negocio);
         $creados = [];
@@ -144,11 +154,11 @@ class MaeCuentaContaSucDetalleService
         $lineas = [
             [
                 'tipo' => MaeCuentaContaSucDetalle::TIPO_VENTA_EFECTIVO,
-                'monto' => round((float) $turno->total_ventas_efectivo, 2),
+                'monto' => round((float) $efectivoGerencia, 2),
             ],
             [
                 'tipo' => MaeCuentaContaSucDetalle::TIPO_VENTA_TARJETA,
-                'monto' => round((float) $turno->total_ventas_tarjeta, 2),
+                'monto' => round((float) $terminalGerencia, 2),
             ],
         ];
 

@@ -209,6 +209,12 @@ class TurnoCajaTest extends TestCase
             ->assertJsonPath('data.turno.total_ventas_efectivo', '100.00')
             ->assertJsonPath('data.turno.total_ventas_tarjeta', '80.00');
 
+        $this->putJson("/api/turnos-caja/{$turnoId}/validacion-gerencia", [
+            'efectivo_gerencia' => 90,
+            'terminal_gerencia' => 70,
+            'diferencia_gerencia' => -20,
+        ])->assertOk();
+
         $this->postJson("/api/turnos-caja/{$turnoId}/cerrar", [
             'status_gerencia' => 'cerrado',
         ])
@@ -227,19 +233,19 @@ class TurnoCajaTest extends TestCase
             'tipo_movimiento' => MaeCuentaContaSucDetalle::TIPO_VENTA_EFECTIVO,
             'cuenta_origen_id' => $subcuenta->id,
             'cuenta_destino_id' => $maestra->id,
-            'monto_movimiento' => 100.00,
+            'monto_movimiento' => 90.00,
             'status' => MaeCuentaContaSucDetalle::STATUS_ACEPTADO,
         ]);
         $this->assertDatabaseHas('mae_cuenta_conta_suc_detalle', [
             'tipo_movimiento' => MaeCuentaContaSucDetalle::TIPO_VENTA_TARJETA,
             'cuenta_origen_id' => $subcuenta->id,
             'cuenta_destino_id' => $maestra->id,
-            'monto_movimiento' => 80.00,
+            'monto_movimiento' => 70.00,
             'status' => MaeCuentaContaSucDetalle::STATUS_ACEPTADO,
         ]);
 
         // Solo abona matriz; sucursal no se descuenta
-        $this->assertDatabaseHas('mae_cuenta_conta_suc', ['id' => $maestra->id, 'saldo' => 1180.00]);
+        $this->assertDatabaseHas('mae_cuenta_conta_suc', ['id' => $maestra->id, 'saldo' => 1160.00]);
         $this->assertDatabaseHas('mae_cuenta_conta_suc', ['id' => $subcuenta->id, 'saldo' => 500.00]);
 
         $descripcion = MaeCuentaContaSucDetalle::query()
@@ -247,6 +253,47 @@ class TurnoCajaTest extends TestCase
             ->value('descripcion_movimiento');
         $this->assertStringContainsString('CORTE del', (string) $descripcion);
         $this->assertStringContainsString($sucursal->name, (string) $descripcion);
+    }
+
+    public function test_gerencia_close_requires_efectivo_and_terminal_gerencia(): void
+    {
+        [$user, $negocio, $sucursal] = $this->seedCajaContext();
+
+        $negocio->cuentasContables()->create([
+            'tipo_cuenta' => MaeCuentaContaSuc::TIPO_MAESTRA,
+            'titulo_cuenta' => 'CUENTA MATRIZ',
+            'saldo' => 0,
+            'status' => MaeCuentaContaSuc::STATUS_ACTIVO,
+            'deleted' => MaeCuentaContaSuc::DELETED_NO,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+        $negocio->cuentasContables()->create([
+            'tipo_cuenta' => MaeCuentaContaSuc::TIPO_SUBCUENTA,
+            'sucursal_id' => $sucursal->id,
+            'titulo_cuenta' => 'SUCURSAL',
+            'saldo' => 0,
+            'status' => MaeCuentaContaSuc::STATUS_ACTIVO,
+            'deleted' => MaeCuentaContaSuc::DELETED_NO,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        Sanctum::actingAs($user);
+        $turnoId = $this->postJson('/api/turnos-caja/abrir', [
+            'sucursal_id' => $sucursal->id,
+            'fondo_inicial' => 100,
+        ])->assertCreated()->json('data.turno.id');
+
+        $this->postJson("/api/turnos-caja/{$turnoId}/cerrar", [
+            'efectivo_real' => 100,
+        ])->assertOk();
+
+        $this->postJson("/api/turnos-caja/{$turnoId}/cerrar", [
+            'status_gerencia' => 'cerrado',
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('success', false);
     }
 
     public function test_login_and_me_expose_caja_status_for_staff(): void
@@ -475,6 +522,68 @@ class TurnoCajaTest extends TestCase
         $this->getJson('/api/turnos-caja?sucursalId='.$sucursal->id)
             ->assertOk()
             ->assertJsonPath('data.turnosAdministrador.0.id', $turnoId);
+    }
+
+    public function test_maestro_can_update_validacion_gerencia_fields(): void
+    {
+        [$user, , $sucursal] = $this->seedCajaContext();
+
+        Sanctum::actingAs($user);
+        $turnoId = $this->postJson('/api/turnos-caja/abrir', [
+            'sucursal_id' => $sucursal->id,
+            'fondo_inicial' => 100,
+        ])->assertCreated()->json('data.turno.id');
+
+        $this->putJson("/api/turnos-caja/{$turnoId}/validacion-gerencia", [
+            'efectivo_gerencia' => 250.50,
+            'terminal_gerencia' => 80,
+            'direfencia_Gerencia' => -10.5,
+        ])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.turno.efectivo_gerencia', '250.50')
+            ->assertJsonPath('data.turno.terminal_gerencia', '80.00')
+            ->assertJsonPath('data.turno.diferencia_gerencia', '-10.50')
+            ->assertJsonPath('data.turno.user_id_dateValidationGerencia', $user->id);
+
+        $this->assertNotNull(
+            $this->getJson("/api/turnos-caja/{$turnoId}")->json('data.turno.dateValidationGerencia')
+        );
+
+        $this->assertDatabaseHas('tb_turnos_cajas', [
+            'id' => $turnoId,
+            'efectivo_gerencia' => 250.50,
+            'terminal_gerencia' => 80,
+            'diferencia_gerencia' => -10.50,
+            'user_id_date_validation_gerencia' => $user->id,
+        ]);
+    }
+
+    public function test_cajera_cannot_update_validacion_gerencia(): void
+    {
+        [$user, $negocio, $sucursal, , $staff] = $this->seedCajaContext();
+
+        $permissions = Role::defaultPermissions();
+        $permissions['corteCaja'] = false;
+        $permissions['corteCajaGerenteAdmo'] = false;
+        $permissions['corteCajaCajera'] = true;
+        $staff->role->update(['permissions' => $permissions]);
+
+        Sanctum::actingAs($staff);
+        $turnoId = $this->postJson('/api/turnos-caja/abrir', [
+            'fondo_inicial' => 100,
+        ])->assertCreated()->json('data.turno.id');
+
+        $this->postJson("/api/turnos-caja/{$turnoId}/validacion-gerencia", [
+            'efectivo_gerencia' => 100,
+            'terminal_gerencia' => 0,
+            'diferencia_gerencia' => 0,
+        ])->assertForbidden();
+
+        $this->assertDatabaseHas('tb_turnos_cajas', [
+            'id' => $turnoId,
+            'efectivo_gerencia' => null,
+        ]);
     }
 
     /**

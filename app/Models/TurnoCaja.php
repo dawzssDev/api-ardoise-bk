@@ -40,6 +40,11 @@ class TurnoCaja extends Model
         'status',
         'status_administrador',
         'status_gerencia',
+        'efectivo_gerencia',
+        'terminal_gerencia',
+        'diferencia_gerencia',
+        'date_validation_gerencia',
+        'user_id_date_validation_gerencia',
         'fecha_apertura',
         'fecha_cierre',
         'fecha_cierre_cajera',
@@ -62,9 +67,13 @@ class TurnoCaja extends Model
             'efectivo_real' => 'decimal:2',
             'efectivo_real_cajera' => 'decimal:2',
             'diferencia' => 'decimal:2',
+            'efectivo_gerencia' => 'decimal:2',
+            'terminal_gerencia' => 'decimal:2',
+            'diferencia_gerencia' => 'decimal:2',
             'fecha_apertura' => 'datetime',
             'fecha_cierre' => 'datetime',
             'fecha_cierre_cajera' => 'datetime',
+            'date_validation_gerencia' => 'datetime',
         ];
     }
 
@@ -91,6 +100,11 @@ class TurnoCaja extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    public function validadoPorGerencia(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'user_id_date_validation_gerencia');
     }
 
     public function negocio(): BelongsTo

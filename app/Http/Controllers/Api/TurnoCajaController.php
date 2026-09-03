@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\TurnoCaja\AbrirTurnoCajaRequest;
 use App\Http\Requests\TurnoCaja\CerrarTurnoCajaRequest;
 use App\Http\Requests\TurnoCaja\CreateCorteParcialTurnoRequest;
+use App\Http\Requests\TurnoCaja\ValidacionGerenciaTurnoRequest;
 use App\Http\Resources\TurnoCajaCorteResource;
 use App\Http\Resources\TurnoCajaResource;
 use App\Http\Resources\VentaResource;
@@ -178,6 +179,33 @@ class TurnoCajaController extends Controller
             'message' => $cierreGerencia
                 ? 'Validación gerencial cerrada correctamente.'
                 : 'Corte de caja realizado correctamente.',
+            'data' => [
+                'turno' => (new TurnoCajaResource($turno))->resolve(),
+            ],
+            'errors' => null,
+        ]);
+    }
+
+    /**
+     * Actualiza montos de validación gerencial (no cierra el turno).
+     */
+    public function validacionGerencia(ValidacionGerenciaTurnoRequest $request, int $id): JsonResponse
+    {
+        try {
+            $negocio = $this->turnos->negocioForUser($request->user());
+            $turno = $this->turnos->findForNegocio($negocio, $id);
+            $turno = $this->turnos->actualizarValidacionGerencia(
+                $turno,
+                $request->user(),
+                $request->validated(),
+            );
+        } catch (HttpException $e) {
+            return $this->errorResponse($e);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Validación gerencial actualizada correctamente.',
             'data' => [
                 'turno' => (new TurnoCajaResource($turno))->resolve(),
             ],

@@ -181,6 +181,30 @@ invoice_pdf y hosted_invoice_url.
 También: status (Stripe), display_status / estatus / status_label
 (pagada, en proceso de pago, anulada, reembolsada, etc.).
 
+--------------------------------------------------------------------------------
+LOTE 10 — Validación gerencia en tb_turnos_cajas
+Fecha: 2026-09-03
+--------------------------------------------------------------------------------
+
+CREAR  database/migrations/2026_09_03_140000_add_validacion_gerencia_to_tb_turnos_cajas_table.php
+CREAR  app/Http/Requests/TurnoCaja/ValidacionGerenciaTurnoRequest.php
+
+COPIAR app/Models/TurnoCaja.php
+COPIAR app/Http/Resources/TurnoCajaResource.php
+COPIAR app/Services/TurnoCajaService.php
+COPIAR app/Http/Controllers/Api/TurnoCajaController.php
+COPIAR routes/api.php
+
+SQL Hostinger:
+  ALTER TABLE tb_turnos_cajas ... (ver hostinger_tablas.sql.txt)
+  o: php artisan migrate
+
+API exclusiva:
+  PUT|POST /api/turnos-caja/{id}/validacion-gerencia
+  Body: efectivo_gerencia, terminal_gerencia, diferencia_gerencia
+  dateValidationGerencia y user_id_dateValidationGerencia los llena el backend.
+  Permiso: maestro o staff con corteCaja / corteCajaGerenteAdmo.
+
 ================================================================================
 FIN
 ================================================================================

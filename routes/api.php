@@ -221,6 +221,8 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'subscription.access'])->grou
     Route::get('/turnos-caja/{id}', [TurnoCajaController::class, 'show'])->whereNumber('id');
     Route::get('/turnos-caja/{id}/preview', [TurnoCajaController::class, 'preview'])->whereNumber('id');
     Route::post('/turnos-caja/{id}/cerrar', [TurnoCajaController::class, 'cerrar'])->whereNumber('id');
+    Route::put('/turnos-caja/{id}/validacion-gerencia', [TurnoCajaController::class, 'validacionGerencia'])->whereNumber('id');
+    Route::post('/turnos-caja/{id}/validacion-gerencia', [TurnoCajaController::class, 'validacionGerencia'])->whereNumber('id');
     Route::get('/turnos-caja/{id}/cortes', [TurnoCajaController::class, 'cortes'])->whereNumber('id');
     Route::post('/turnos-caja/{id}/cortes', [TurnoCajaController::class, 'storeCorte'])->whereNumber('id');
     Route::get('/turnos-caja/{id}/ventas', [TurnoCajaController::class, 'ventas'])->whereNumber('id');
