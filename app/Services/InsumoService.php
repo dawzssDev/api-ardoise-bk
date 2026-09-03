@@ -13,11 +13,16 @@ class InsumoService
 {
     use ResolvesNegocioFromActor;
 
+    public function __construct(
+        private readonly PlanLimitService $planLimits,
+    ) {}
+
     /**
      * @param  array{name: string, categoria_insumo_id: int, status_insumo?: bool}  $data
      */
     public function create(Negocio $negocio, User|Staff $user, array $data): Insumo
     {
+        $this->planLimits->assertCanCreate($negocio, PlanLimitService::RESOURCE_INSUMOS);
         $auditId = $this->auditUserId($user, $negocio);
 
         return $negocio->insumos()->create([

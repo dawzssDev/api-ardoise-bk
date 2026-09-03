@@ -19,11 +19,16 @@ class EmpleadoService
 
     private const IMAGE_DISK = 'empleados';
 
+    public function __construct(
+        private readonly PlanLimitService $planLimits,
+    ) {}
+
     /**
      * @param  array<string, mixed>  $data
      */
     public function create(Negocio $negocio, User|Staff $user, array $data): Empleado
     {
+        $this->planLimits->assertCanCreate($negocio, PlanLimitService::RESOURCE_PERSONAL);
         $imagePath = null;
         $auditId = $this->auditUserId($user, $negocio);
 

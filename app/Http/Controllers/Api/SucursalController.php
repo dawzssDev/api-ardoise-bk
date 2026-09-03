@@ -59,6 +59,7 @@ class SucursalController extends Controller
     {
         try {
             $negocio = $this->sucursales->negocioForUser($request->user());
+            $sucursal = $this->sucursales->create($negocio, $request->validated());
         } catch (HttpException $e) {
             return response()->json([
                 'success' => false,
@@ -67,8 +68,6 @@ class SucursalController extends Controller
                 'errors' => null,
             ], $e->getStatusCode());
         }
-
-        $sucursal = $this->sucursales->create($negocio, $request->validated());
 
         return response()->json([
             'success' => true,

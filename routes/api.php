@@ -57,7 +57,7 @@ Route::post('/auth/reset-password', [PasswordResetController::class, 'reset'])
 Route::post('/stripe/webhook', StripeWebhookController::class)
     ->middleware('throttle:webhooks');
 
-Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
+Route::middleware(['auth:sanctum', 'throttle:api', 'subscription.access'])->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/auth/me', [AuthController::class, 'me']);
 

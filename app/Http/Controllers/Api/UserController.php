@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\User\UpdateUserRequest;
 use App\Http\Resources\UserResource;
+use App\Services\SubscriptionAccessService;
 use App\Services\UserService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,6 +15,7 @@ class UserController extends Controller
 {
     public function __construct(
         private readonly UserService $users,
+        private readonly SubscriptionAccessService $subscriptionAccess,
     ) {}
 
     /**
@@ -28,6 +30,7 @@ class UserController extends Controller
             'message' => 'ok',
             'data' => [
                 'user' => (new UserResource($user))->resolve(),
+                'subscription_access' => $this->subscriptionAccess->snapshot($user),
             ],
             'errors' => null,
         ]);
@@ -57,6 +60,7 @@ class UserController extends Controller
             'message' => 'Usuario actualizado correctamente.',
             'data' => [
                 'user' => (new UserResource($user))->resolve(),
+                'subscription_access' => $this->subscriptionAccess->snapshot($user),
             ],
             'errors' => null,
         ]);

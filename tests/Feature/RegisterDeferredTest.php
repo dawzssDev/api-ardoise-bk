@@ -76,6 +76,7 @@ class RegisterDeferredTest extends TestCase
     {
         config([
             'services.stripe.price_mensual' => 'price_test_mensual',
+            'services.stripe.price_basico_mensual' => 'price_test_mensual',
             'services.stripe.trial_days' => 14,
         ]);
 
@@ -201,11 +202,17 @@ class RegisterDeferredTest extends TestCase
         $this->assertDatabaseHas('users', [
             'email' => 'ana@negocio.mx',
             'stripe_customer_id' => 'cus_pending_1',
+            'user_ardo_vip' => 0,
+            'limit_sucursales' => 2,
+            'limit_productos' => 100,
+            'limit_staff' => 8,
         ]);
 
         $user = User::query()->where('email', 'ana@negocio.mx')->first();
         $this->assertNotNull($user);
         $this->assertTrue(Hash::check('password123', $user->password));
+        $this->assertSame(30, (int) $user->limit_proveedores);
+        $this->assertSame(150, (int) $user->limit_insumos);
 
         $this->assertDatabaseHas('pending_registrations', [
             'token' => $registrationToken,

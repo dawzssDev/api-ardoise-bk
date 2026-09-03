@@ -14,11 +14,16 @@ class RoleService
 {
     use ResolvesNegocioFromActor;
 
+    public function __construct(
+        private readonly PlanLimitService $planLimits,
+    ) {}
+
     /**
      * @param  array{name: string, permissions?: array<string, bool>|null, status?: bool}  $data
      */
     public function create(Negocio $negocio, User|Staff $user, array $data): Role
     {
+        $this->planLimits->assertCanCreate($negocio, PlanLimitService::RESOURCE_ROLES);
         $auditId = $this->auditUserId($user, $negocio);
 
         return $negocio->roles()->create([

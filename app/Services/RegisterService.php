@@ -7,6 +7,7 @@ use App\Models\PendingRegistration;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Stripe\Exception\ApiErrorException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -17,6 +18,7 @@ class RegisterService
 
     public function __construct(
         private readonly StripeService $stripe,
+        private readonly PlanLimitService $planLimits,
     ) {}
 
     /**
@@ -244,7 +246,7 @@ class RegisterService
      */
     private function finalizePending(PendingRegistration $pending): array
     {
-        return DB::transaction(function () use ($pending) {
+        $result = DB::transaction(function () use ($pending) {
             $locked = PendingRegistration::query()
                 ->whereKey($pending->id)
                 ->lockForUpdate()
@@ -265,12 +267,17 @@ class RegisterService
             }
 
             // password en pending ya está hasheado; el cast `hashed` de User no lo vuelve a hashear.
+            // block_POS no se envía: usa DEFAULT 0 de la columna (si aún no existe, el INSERT no falla).
             $user = User::query()->create([
                 'name' => $locked->name,
                 'email' => $locked->email,
                 'password' => $locked->password,
                 'stripe_customer_id' => $locked->stripe_customer_id,
+                'user_ardo_vip' => 0,
             ]);
+
+            // Límites según price_id del checkout (Básico / Plus).
+            $this->planLimits->applyFromPriceId($user, $locked->stripe_price_id, $this->stripe);
 
             $negocio = $user->negocio()->create([
                 'name' => $locked->business_name,
@@ -282,14 +289,6 @@ class RegisterService
                 'tax_zip' => $locked->tax_zip,
                 'cfdi_use' => $locked->cfdi_use,
             ]);
-
-            if ($locked->stripe_customer_id) {
-                $this->stripe->attachUserToCustomer($locked->stripe_customer_id, $user);
-            }
-
-            if ($locked->stripe_subscription_id) {
-                $this->stripe->attachUserToSubscription($locked->stripe_subscription_id, $user);
-            }
 
             $locked->forceFill([
                 'status' => PendingRegistration::STATUS_COMPLETED,
@@ -303,5 +302,35 @@ class RegisterService
                 'pending' => $locked->refresh(),
             ];
         });
+
+        // Fuera de la transacción: si el espejo Stripe falla, la cuenta ya quedó creada.
+        $this->linkStripeAfterCreate($result['user'], $result['pending']);
+
+        return [
+            'user' => $result['user']->refresh(),
+            'negocio' => $result['negocio']->refresh(),
+            'pending' => $result['pending']->refresh(),
+        ];
+    }
+
+    private function linkStripeAfterCreate(User $user, PendingRegistration $pending): void
+    {
+        try {
+            if ($pending->stripe_customer_id) {
+                $this->stripe->attachUserToCustomer($pending->stripe_customer_id, $user);
+            }
+
+            if ($pending->stripe_subscription_id) {
+                $this->stripe->attachUserToSubscription($pending->stripe_subscription_id, $user);
+            }
+        } catch (\Throwable $e) {
+            Log::error('Cuenta creada pero no se pudo ligar/sincronizar Stripe', [
+                'user_id' => $user->id,
+                'pending_id' => $pending->id,
+                'email' => $pending->email,
+                'stripe_subscription_id' => $pending->stripe_subscription_id,
+                'message' => $e->getMessage(),
+            ]);
+        }
     }
 }

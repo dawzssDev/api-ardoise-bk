@@ -361,6 +361,14 @@ class StripeService
 
             $existing = $this->findReusableSubscription($user, $priceId);
             if ($existing !== null) {
+                if ($existing->cancel_at_period_end) {
+                    $existing = $this->client()->subscriptions->update($existing->id, [
+                        'cancel_at_period_end' => false,
+                        'expand' => $this->subscriptionSecretExpands(),
+                    ]);
+                    $this->syncSubscriptionFromStripe($existing);
+                }
+
                 return $existing;
             }
 
@@ -451,7 +459,8 @@ class StripeService
     }
 
     /**
-     * Cancela una suscripción (al final del periodo o inmediata).
+     * Cancela una suscripción al final del periodo (sin reembolso).
+     * El acceso se mantiene hasta la fecha de corte.
      *
      * @throws ApiErrorException
      */
@@ -465,14 +474,17 @@ class StripeService
             ->where('stripe_subscription_id', $stripeSubscriptionId)
             ->firstOrFail();
 
-        if ($atPeriodEnd) {
-            $subscription = $this->client()->subscriptions->update($stripeSubscriptionId, [
-                'cancel_at_period_end' => true,
-            ]);
-        } else {
-            $subscription = $this->client()->subscriptions->cancel($stripeSubscriptionId);
-        }
+        // Siempre al final del periodo: no hay reembolso ni corte inmediato.
+        $this->client()->subscriptions->update($stripeSubscriptionId, [
+            'cancel_at_period_end' => true,
+        ]);
 
+        Subscription::query()
+            ->where('user_id', $user->id)
+            ->where('stripe_subscription_id', $stripeSubscriptionId)
+            ->update(['cancel_at_period_end' => true]);
+
+        $subscription = $this->client()->subscriptions->retrieve($stripeSubscriptionId);
         $this->syncSubscriptionFromStripe($subscription);
 
         return $subscription;
@@ -483,7 +495,21 @@ class StripeService
      */
     public function syncSubscriptionFromStripe(StripeSubscription $sub): void
     {
-        $priceId = $sub->items->data[0]->price->id ?? null;
+        $existing = Subscription::query()
+            ->where('stripe_subscription_id', $sub->id)
+            ->first();
+
+        $item = null;
+        $items = $sub->items ?? null;
+        if (is_object($items) && isset($items->data[0])) {
+            $item = $items->data[0];
+        }
+        $priceId = null;
+        if (is_object($item) && isset($item->price)) {
+            $priceId = is_string($item->price) ? $item->price : ($item->price->id ?? null);
+        }
+        $priceId = $priceId ?: $existing?->stripe_price_id;
+
         $userId = $sub->metadata['user_id'] ?? null;
 
         if (! $userId && $sub->customer) {
@@ -493,30 +519,94 @@ class StripeService
                 ->value('id');
         }
 
+        $userId = $userId ?: $existing?->user_id;
+
         if (! $userId || ! $priceId) {
             return;
         }
 
         $periodEnd = $sub->current_period_end
-            ?? ($sub->items->data[0]->current_period_end ?? null);
+            ?? (is_object($item) ? ($item->current_period_end ?? null) : null);
+        $periodStart = $sub->current_period_start
+            ?? (is_object($item) ? ($item->current_period_start ?? null) : null);
+
+        $hasAccessCols = \Illuminate\Support\Facades\Schema::hasColumn('subscriptions', 'cancel_at_period_end');
+
+        $cancelAtPeriodEnd = (bool) ($sub->cancel_at_period_end ?? false);
+        if ($hasAccessCols && $existing?->cancel_at_period_end && in_array($sub->status, ['canceled', 'unpaid'], true)) {
+            $cancelAtPeriodEnd = true;
+        }
+
+        $periodEndAt = $periodEnd ? Carbon::createFromTimestamp($periodEnd) : null;
+        $periodStartAt = $periodStart ? Carbon::createFromTimestamp($periodStart) : null;
+        $accessUntil = $this->resolveAccessUntil(
+            $sub->status,
+            $periodStartAt,
+            $periodEndAt,
+            $hasAccessCols ? $existing?->access_until : null,
+        );
+
+        $accessFields = [];
+        if ($hasAccessCols) {
+            $accessFields = [
+                'current_period_start' => $periodStartAt,
+                'cancel_at_period_end' => $cancelAtPeriodEnd,
+                'access_until' => $accessUntil,
+            ];
+        }
 
         Subscription::query()->updateOrCreate(
             ['stripe_subscription_id' => $sub->id],
-            [
+            array_merge([
                 'user_id' => (int) $userId,
                 'stripe_price_id' => $priceId,
                 'status' => $sub->status,
-                'current_period_end' => $periodEnd
-                    ? Carbon::createFromTimestamp($periodEnd)
-                    : null,
+                'current_period_end' => $periodEndAt,
                 'trial_ends_at' => isset($sub->trial_end)
                     ? Carbon::createFromTimestamp($sub->trial_end)
                     : null,
                 'canceled_at' => isset($sub->canceled_at)
                     ? Carbon::createFromTimestamp($sub->canceled_at)
                     : null,
-            ],
+            ], $accessFields),
         );
+
+        $user = User::query()->find((int) $userId);
+        if ($user && in_array($sub->status, ['active', 'trialing'], true)) {
+            app(PlanLimitService::class)->applyFromPriceId($user, $priceId, $this);
+        }
+
+        if ($user) {
+            try {
+                app(SubscriptionAccessService::class)->applyForUser($user);
+            } catch (\Throwable $e) {
+                Log::error('No se pudo actualizar block_POS tras sync de suscripción', [
+                    'user_id' => $user->id,
+                    'subscription_id' => $sub->id,
+                    'message' => $e->getMessage(),
+                ]);
+            }
+        }
+    }
+
+    /**
+     * Fecha hasta la que el titular pagó: no se extiende si el cobro falló.
+     */
+    private function resolveAccessUntil(
+        string $status,
+        ?Carbon $periodStartAt,
+        ?Carbon $periodEndAt,
+        mixed $existingAccessUntil,
+    ): ?Carbon {
+        if (in_array($status, ['active', 'trialing'], true)) {
+            return $periodEndAt;
+        }
+
+        if ($existingAccessUntil instanceof \DateTimeInterface) {
+            return Carbon::instance($existingAccessUntil);
+        }
+
+        return $periodStartAt ?? $periodEndAt;
     }
 
     /**
@@ -554,7 +644,8 @@ class StripeService
 
     /**
      * Resuelve el price_id de Stripe desde el plan del .env.
-     * Planes: prueba | mensual | anual
+     * Planes: basico_mensual | basico_anual | plus_mensual | plus_anual
+     *         (+ aliases: standard_*, standart_*, prueba, mensual, anual)
      *
      * @throws \InvalidArgumentException
      */
@@ -562,14 +653,29 @@ class StripeService
     {
         $plan = strtolower(trim($plan));
 
+        $aliases = [
+            'standard_mensual' => 'basico_mensual',
+            'standart_mensual' => 'basico_mensual',
+            'standard_anual' => 'basico_anual',
+            'standart_anual' => 'basico_anual',
+            'plus' => 'plus_mensual',
+        ];
+        $plan = $aliases[$plan] ?? $plan;
+
         $map = [
             'prueba' => config('services.stripe.price_prueba'),
-            'mensual' => config('services.stripe.price_mensual'),
-            'anual' => config('services.stripe.price_anual'),
+            'mensual' => config('services.stripe.price_mensual') ?: config('services.stripe.price_basico_mensual'),
+            'anual' => config('services.stripe.price_anual') ?: config('services.stripe.price_basico_anual'),
+            'basico_mensual' => config('services.stripe.price_basico_mensual'),
+            'basico_anual' => config('services.stripe.price_basico_anual'),
+            'plus_mensual' => config('services.stripe.price_plus_mensual'),
+            'plus_anual' => config('services.stripe.price_plus_anual'),
         ];
 
         if (! array_key_exists($plan, $map)) {
-            throw new \InvalidArgumentException('Plan inválido. Usa: prueba, mensual o anual.');
+            throw new \InvalidArgumentException(
+                'Plan inválido. Usa: basico_mensual, basico_anual, plus_mensual o plus_anual.',
+            );
         }
 
         $priceId = $map[$plan];
@@ -584,21 +690,38 @@ class StripeService
     /**
      * Planes configurados en .env (solo los que tienen price_id).
      *
-     * @return array<int, array{plan: string, price_id: string}>
+     * @return array<int, array{plan: string, price_id: string, tier: string}>
      */
     public function configuredPlans(): array
     {
         $plans = [];
+        $seenPrices = [];
 
-        foreach (['prueba', 'mensual', 'anual'] as $plan) {
-            $priceId = config("services.stripe.price_{$plan}");
-
-            if (is_string($priceId) && $priceId !== '') {
-                $plans[] = [
-                    'plan' => $plan,
-                    'price_id' => $priceId,
-                ];
+        foreach ([
+            'basico_mensual',
+            'basico_anual',
+            'plus_mensual',
+            'plus_anual',
+            'prueba',
+            'mensual',
+            'anual',
+        ] as $plan) {
+            try {
+                $priceId = $this->resolvePriceIdByPlan($plan);
+            } catch (\InvalidArgumentException) {
+                continue;
             }
+
+            if (isset($seenPrices[$priceId])) {
+                continue;
+            }
+
+            $seenPrices[$priceId] = true;
+            $plans[] = [
+                'plan' => $plan,
+                'price_id' => $priceId,
+                'tier' => app(PlanLimitService::class)->tierForPlan($plan),
+            ];
         }
 
         return $plans;

@@ -17,12 +17,16 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
+    ->withCommands([
+        \App\Console\Commands\SyncSubscriptionAccessCommand::class,
+    ])
     ->withMiddleware(function (Middleware $middleware): void {
         // Hostinger / LiteSpeed: confiar en el proxy para HTTPS y IP real
         $middleware->trustProxies(at: '*');
 
         $middleware->alias([
             'master' => \App\Http\Middleware\EnsureMasterUser::class,
+            'subscription.access' => \App\Http\Middleware\EnsureSubscriptionAccess::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

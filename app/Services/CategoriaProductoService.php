@@ -13,11 +13,17 @@ class CategoriaProductoService
 {
     use ResolvesNegocioFromActor;
 
+    public function __construct(
+        private readonly PlanLimitService $planLimits,
+    ) {}
+
     /**
      * @param  array{name: string}  $data
      */
     public function create(Negocio $negocio, array $data): CategoriaProducto
     {
+        $this->planLimits->assertCanCreateCategoria($negocio, PlanLimitService::RESOURCE_PRODUCTOS);
+
         return $negocio->categoriaProductos()->create([
             'name' => $data['name'],
             'status' => CategoriaProducto::STATUS_ACTIVO,

@@ -15,6 +15,10 @@ class StockInsumoService
 {
     use ResolvesNegocioFromActor;
 
+    public function __construct(
+        private readonly PlanLimitService $planLimits,
+    ) {}
+
     public function findSucursalForNegocio(Negocio $negocio, int $sucursalId): Sucursal
     {
         return $negocio->sucursales()->findOrFail($sucursalId);
@@ -117,6 +121,11 @@ class StockInsumoService
         ]);
 
         if (! $stock->exists) {
+            $this->planLimits->assertCanCreate(
+                $negocio,
+                PlanLimitService::RESOURCE_STOCK_INSUMOS,
+                $sucursal->id,
+            );
             $stock->negocio_id = $negocio->id;
             $stock->created_by = $auditId;
             $stock->is_active = true;

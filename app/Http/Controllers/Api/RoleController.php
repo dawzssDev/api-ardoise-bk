@@ -54,15 +54,14 @@ class RoleController extends Controller
     {
         try {
             $negocio = $this->roles->negocioForUser($request->user());
+            $role = $this->roles->create(
+                $negocio,
+                $request->user(),
+                $request->validated(),
+            )->load(['createdBy:id,name,email', 'updatedBy:id,name,email']);
         } catch (HttpException $e) {
             return $this->errorResponse($e);
         }
-
-        $role = $this->roles->create(
-            $negocio,
-            $request->user(),
-            $request->validated(),
-        )->load(['createdBy:id,name,email', 'updatedBy:id,name,email']);
 
         return response()->json([
             'success' => true,

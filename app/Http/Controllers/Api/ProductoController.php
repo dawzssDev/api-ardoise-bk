@@ -70,24 +70,24 @@ class ProductoController extends Controller
     {
         try {
             $negocio = $this->productos->negocioForUser($request->user());
+
+            $data = $request->validated();
+            if ($request->hasFile('image')) {
+                $data['image'] = $request->file('image');
+            }
+
+            $producto = $this->productos->create(
+                $negocio,
+                $request->user(),
+                $data,
+            )->load([
+                'categoria:id,negocio_id,name',
+                'createdBy:id,name,email',
+                'updatedBy:id,name,email',
+            ]);
         } catch (HttpException $e) {
             return $this->errorResponse($e);
         }
-
-        $data = $request->validated();
-        if ($request->hasFile('image')) {
-            $data['image'] = $request->file('image');
-        }
-
-        $producto = $this->productos->create(
-            $negocio,
-            $request->user(),
-            $data,
-        )->load([
-            'categoria:id,negocio_id,name',
-            'createdBy:id,name,email',
-            'updatedBy:id,name,email',
-        ]);
 
         return response()->json([
             'success' => true,

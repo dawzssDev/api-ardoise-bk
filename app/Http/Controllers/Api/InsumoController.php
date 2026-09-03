@@ -54,19 +54,18 @@ class InsumoController extends Controller
     {
         try {
             $negocio = $this->insumos->negocioForUser($request->user());
+            $insumo = $this->insumos->create(
+                $negocio,
+                $request->user(),
+                $request->validated(),
+            )->load([
+                'categoria:id,negocio_id,name',
+                'createdBy:id,name,email',
+                'updatedBy:id,name,email',
+            ]);
         } catch (HttpException $e) {
             return $this->errorResponse($e);
         }
-
-        $insumo = $this->insumos->create(
-            $negocio,
-            $request->user(),
-            $request->validated(),
-        )->load([
-            'categoria:id,negocio_id,name',
-            'createdBy:id,name,email',
-            'updatedBy:id,name,email',
-        ]);
 
         return response()->json([
             'success' => true,

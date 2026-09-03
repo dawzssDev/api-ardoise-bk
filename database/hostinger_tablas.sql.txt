@@ -24,6 +24,8 @@ CREATE TABLE `migrations` (
 --------------------------------------------------------------------------------
 1) users
 --------------------------------------------------------------------------------
+-- user_ardo_vip: 1 = sin límites (VIP); 0 = aplica límites del plan
+-- limit_stock_* = máximo de registros de stock POR sucursal
 CREATE TABLE `users` (
   `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
   `name` varchar(255) NOT NULL,
@@ -31,6 +33,18 @@ CREATE TABLE `users` (
   `email_verified_at` timestamp NULL DEFAULT NULL,
   `password` varchar(255) NOT NULL,
   `stripe_customer_id` varchar(255) NULL DEFAULT NULL,
+  `user_ardo_vip` tinyint UNSIGNED NOT NULL DEFAULT 0,
+  `limit_sucursales` int UNSIGNED NULL DEFAULT NULL,
+  `limit_insumos` int UNSIGNED NULL DEFAULT NULL,
+  `limit_stock_insumos` int UNSIGNED NULL DEFAULT NULL,
+  `limit_proveedores` int UNSIGNED NULL DEFAULT NULL,
+  `limit_productos` int UNSIGNED NULL DEFAULT NULL,
+  `limit_stock_productos` int UNSIGNED NULL DEFAULT NULL,
+  `limit_personal` int UNSIGNED NULL DEFAULT NULL,
+  `limit_cuentas_contables` int UNSIGNED NULL DEFAULT NULL,
+  `limit_roles` int UNSIGNED NULL DEFAULT NULL,
+  `limit_staff` int UNSIGNED NULL DEFAULT NULL,
+  `block_POS` int UNSIGNED NOT NULL DEFAULT 0,
   `remember_token` varchar(100) NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -38,6 +52,37 @@ CREATE TABLE `users` (
   UNIQUE KEY `users_email_unique` (`email`),
   KEY `users_stripe_customer_id_index` (`stripe_customer_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--------------------------------------------------------------------------------
+ALTER users — límites de plan + user_ardo_vip
+--------------------------------------------------------------------------------
+-- Si `users` ya existe sin estas columnas:
+ALTER TABLE `users`
+  ADD COLUMN `user_ardo_vip` tinyint UNSIGNED NOT NULL DEFAULT 0 AFTER `stripe_customer_id`,
+  ADD COLUMN `limit_sucursales` int UNSIGNED NULL DEFAULT NULL AFTER `user_ardo_vip`,
+  ADD COLUMN `limit_insumos` int UNSIGNED NULL DEFAULT NULL AFTER `limit_sucursales`,
+  ADD COLUMN `limit_stock_insumos` int UNSIGNED NULL DEFAULT NULL AFTER `limit_insumos`,
+  ADD COLUMN `limit_proveedores` int UNSIGNED NULL DEFAULT NULL AFTER `limit_stock_insumos`,
+  ADD COLUMN `limit_productos` int UNSIGNED NULL DEFAULT NULL AFTER `limit_proveedores`,
+  ADD COLUMN `limit_stock_productos` int UNSIGNED NULL DEFAULT NULL AFTER `limit_productos`,
+  ADD COLUMN `limit_personal` int UNSIGNED NULL DEFAULT NULL AFTER `limit_stock_productos`,
+  ADD COLUMN `limit_cuentas_contables` int UNSIGNED NULL DEFAULT NULL AFTER `limit_personal`,
+  ADD COLUMN `limit_roles` int UNSIGNED NULL DEFAULT NULL AFTER `limit_cuentas_contables`,
+  ADD COLUMN `limit_staff` int UNSIGNED NULL DEFAULT NULL AFTER `limit_roles`;
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_09_01_210000_add_plan_limits_to_users_table', 1);
+
+
+--------------------------------------------------------------------------------
+ALTER users — block_POS (bloqueo POS / staff al vencer o cancelar suscripción)
+--------------------------------------------------------------------------------
+-- Si `users` ya existe sin este campo:
+ALTER TABLE `users`
+  ADD COLUMN `block_POS` int UNSIGNED NOT NULL DEFAULT 0 AFTER `limit_staff`;
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_09_02_100000_add_block_pos_to_users_table', 1);
 
 
 --------------------------------------------------------------------------------
@@ -214,7 +259,10 @@ CREATE TABLE `subscriptions` (
   `stripe_subscription_id` varchar(255) NOT NULL,
   `stripe_price_id` varchar(255) NOT NULL,
   `status` varchar(255) NOT NULL,
+  `current_period_start` timestamp NULL DEFAULT NULL,
   `current_period_end` timestamp NULL DEFAULT NULL,
+  `cancel_at_period_end` tinyint(1) NOT NULL DEFAULT 0,
+  `access_until` timestamp NULL DEFAULT NULL,
   `trial_ends_at` timestamp NULL DEFAULT NULL,
   `canceled_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -1535,6 +1583,18 @@ ALTER TABLE `orden_detalles`
 
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_08_29_120000_add_status_entregado_to_orden_detalles_table', 1);
+
+================================================================================
+ALTER subscriptions — corte de acceso (cancelación sin reembolso / block_POS)
+================================================================================
+-- Si `subscriptions` ya existe sin estos campos, ejecuta:
+ALTER TABLE `subscriptions`
+  ADD COLUMN `current_period_start` timestamp NULL DEFAULT NULL AFTER `status`,
+  ADD COLUMN `cancel_at_period_end` tinyint(1) NOT NULL DEFAULT 0 AFTER `current_period_end`,
+  ADD COLUMN `access_until` timestamp NULL DEFAULT NULL AFTER `cancel_at_period_end`;
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_09_02_100100_add_access_fields_to_subscriptions_table', 1);
 
 ================================================================================
 FIN

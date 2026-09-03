@@ -17,9 +17,11 @@ use App\Models\User;
 use App\Services\AuthService;
 use App\Services\RegisterService;
 use App\Services\StripeService;
+use App\Services\SubscriptionAccessService;
 use App\Services\TurnoCajaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Stripe\Exception\ApiErrorException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
@@ -30,6 +32,7 @@ class AuthController extends Controller
         private readonly AuthService $authService,
         private readonly StripeService $stripe,
         private readonly TurnoCajaService $turnosCaja,
+        private readonly SubscriptionAccessService $subscriptionAccess,
     ) {}
 
     /**
@@ -77,9 +80,12 @@ class AuthController extends Controller
                 $product = $price->product;
                 $unitAmount = (int) ($price->unit_amount ?? 0);
 
+                $tier = $configured['tier'] ?? 'basico';
                 $enrichedConfigured[] = [
                     'plan' => $configured['plan'],
                     'price_id' => $configured['price_id'],
+                    'tier' => $tier,
+                    'limits' => config("plans.tiers.{$tier}", config('plans.tiers.basico')),
                     'currency' => $price->currency,
                     'unit_amount' => $unitAmount,
                     'amount' => $unitAmount / 100,
@@ -102,6 +108,7 @@ class AuthController extends Controller
             'message' => 'ok',
             'data' => [
                 'configured_plans' => $enrichedConfigured,
+                'plan_tiers' => config('plans.tiers'),
                 'trial_days' => $this->stripe->trialDays(),
             ],
             'errors' => null,
@@ -204,6 +211,19 @@ class AuthController extends Controller
                 'data' => null,
                 'errors' => null,
             ], 502);
+        } catch (\Throwable $e) {
+            Log::error('Fallo al crear la cuenta tras el pago', [
+                'pending_id' => $pending->id,
+                'email' => $pending->email,
+                'message' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'No se pudo crear la cuenta. Si el pago ya se realizó, vuelve a confirmar el registro con el mismo token (no se cobra de nuevo).',
+                'data' => null,
+                'errors' => null,
+            ], 500);
         }
 
         $user = $result['user']->load('negocio');
@@ -216,6 +236,7 @@ class AuthController extends Controller
                 'type' => 'user',
                 'user' => (new UserResource($user))->resolve(),
                 'negocio' => (new NegocioResource($result['negocio']))->resolve(),
+                'subscription_access' => $this->safeSubscriptionAccess($user),
                 'token' => $token,
                 'token_type' => 'Bearer',
             ],
@@ -277,6 +298,7 @@ class AuthController extends Controller
 
         /** @var User $actor */
         $actor->load('negocio');
+        $access = $this->safeSubscriptionAccess($actor);
 
         return response()->json([
             'success' => true,
@@ -285,7 +307,8 @@ class AuthController extends Controller
                 'type' => 'user',
                 'user' => (new UserResource($actor))->resolve(),
                 'staff' => null,
-                'caja' => $this->cajaPayload($actor),
+                'caja' => $this->cajaPayload($actor, ($access['pos_blocked'] ?? false) === true),
+                'subscription_access' => $access,
                 'token' => $token,
                 'token_type' => 'Bearer',
             ],
@@ -340,6 +363,7 @@ class AuthController extends Controller
         }
 
         $actor->load('negocio');
+        $access = $this->safeSubscriptionAccess($actor);
 
         return response()->json([
             'success' => true,
@@ -348,7 +372,8 @@ class AuthController extends Controller
                 'type' => 'user',
                 'user' => (new UserResource($actor))->resolve(),
                 'staff' => null,
-                'caja' => $this->cajaPayload($actor),
+                'caja' => $this->cajaPayload($actor, ($access['pos_blocked'] ?? false) === true),
+                'subscription_access' => $access,
             ],
             'errors' => null,
         ]);
@@ -357,8 +382,15 @@ class AuthController extends Controller
     /**
      * @return array{caja_abierta: bool, requiere_abrir_caja: bool, turno: array<string, mixed>|null}
      */
-    private function cajaPayload(User|Staff $actor): array
+    private function cajaPayload(User|Staff $actor, bool $skip = false): array
     {
+        if ($skip) {
+            return [
+                'caja_abierta' => false,
+                'requiere_abrir_caja' => false,
+                'turno' => null,
+            ];
+        }
         $negocio = $actor->negocio;
         if (! $negocio) {
             return [
@@ -406,10 +438,36 @@ class AuthController extends Controller
                 'negocio' => $user->negocio
                     ? (new NegocioResource($user->negocio))->resolve()
                     : null,
+                'subscription_access' => $this->safeSubscriptionAccess($user),
                 'token' => $tokenApi,
                 'token_type' => 'Bearer',
             ],
             'errors' => null,
         ]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function safeSubscriptionAccess(User $user): array
+    {
+        try {
+            return $this->subscriptionAccess->snapshot($user);
+        } catch (\Throwable $e) {
+            Log::error('No se pudo armar subscription_access', [
+                'user_id' => $user->id,
+                'message' => $e->getMessage(),
+            ]);
+
+            return [
+                'block_POS' => (int) ($user->block_POS ?? 0),
+                'block_pos' => (int) ($user->block_POS ?? 0),
+                'pos_blocked' => false,
+                'staff_blocked' => false,
+                'access_state' => 'active',
+                'message' => null,
+                'allowed_sections' => ['all'],
+            ];
+        }
     }
 }

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Subscription\CreateSubscriptionRequest;
 use App\Services\StripeService;
+use App\Services\SubscriptionAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Stripe\Exception\ApiErrorException;
@@ -13,6 +14,7 @@ class SubscriptionController extends Controller
 {
     public function __construct(
         private readonly StripeService $stripe,
+        private readonly SubscriptionAccessService $subscriptionAccess,
     ) {}
 
     /**
@@ -202,17 +204,15 @@ class SubscriptionController extends Controller
     }
 
     /**
-     * Cancelar suscripción (al final del periodo por defecto; ?now=1 inmediata).
+     * Cancelar suscripción al final del periodo (sin reembolso).
+     * El acceso se mantiene hasta la fecha de corte.
      */
     public function destroy(Request $request, string $stripeSubscriptionId): JsonResponse
     {
-        $atPeriodEnd = ! $request->boolean('now');
-
         try {
             $subscription = $this->stripe->cancelSubscription(
                 $request->user(),
                 $stripeSubscriptionId,
-                $atPeriodEnd,
             );
         } catch (ApiErrorException $e) {
             return response()->json([
@@ -223,15 +223,24 @@ class SubscriptionController extends Controller
             ], 502);
         }
 
+        $periodEnd = $subscription->current_period_end ?? null;
+        if (! $periodEnd) {
+            $item = is_object($subscription->items ?? null) && isset($subscription->items->data[0])
+                ? $subscription->items->data[0]
+                : null;
+            $periodEnd = is_object($item) ? ($item->current_period_end ?? null) : null;
+        }
+
         return response()->json([
             'success' => true,
-            'message' => $atPeriodEnd
-                ? 'Suscripción programada para cancelarse al final del periodo.'
-                : 'Suscripción cancelada.',
+            'message' => 'Suscripción programada para cancelarse al final del periodo. No se genera reembolso; podrás usar la plataforma hasta tu fecha de corte.',
             'data' => [
                 'subscription_id' => $subscription->id,
                 'status' => $subscription->status,
-                'cancel_at_period_end' => (bool) ($subscription->cancel_at_period_end ?? false),
+                'cancel_at_period_end' => true,
+                'refund' => false,
+                'current_period_end' => $periodEnd ? date('c', $periodEnd) : null,
+                'subscription_access' => $this->subscriptionAccess->snapshot($request->user()),
             ],
             'errors' => null,
         ]);

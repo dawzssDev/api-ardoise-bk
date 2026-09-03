@@ -15,6 +15,10 @@ class MaeCuentaContaSucService
 {
     use ResolvesNegocioFromActor;
 
+    public function __construct(
+        private readonly PlanLimitService $planLimits,
+    ) {}
+
     /**
      * @param  array{
      *     tipo_cuenta: string,
@@ -26,6 +30,7 @@ class MaeCuentaContaSucService
      */
     public function create(Negocio $negocio, User|Staff $actor, array $data): MaeCuentaContaSuc
     {
+        $this->planLimits->assertCanCreate($negocio, PlanLimitService::RESOURCE_CUENTAS_CONTABLES);
         $tipo = $this->resolvedTipoCuenta($data['tipo_cuenta'] ?? null);
         $sucursalId = $this->resolvedSucursalId($negocio, $tipo, $data['sucursal_id'] ?? null);
         $auditId = $this->auditUserId($actor, $negocio);

@@ -9,6 +9,10 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class AuthService
 {
+    public function __construct(
+        private readonly SubscriptionAccessService $subscriptionAccess,
+    ) {}
+
     /**
      * Intenta autenticar primero en users (maestro) y luego en staff.
      *
@@ -25,9 +29,11 @@ class AuthService
                 throw new HttpException(401, 'Credenciales inválidas');
             }
 
+            $this->subscriptionAccess->applyForUser($user);
+
             return [
                 'type' => 'user',
-                'actor' => $user,
+                'actor' => $user->refresh(),
             ];
         }
 
@@ -38,6 +44,17 @@ class AuthService
 
         foreach ($staffCandidates as $staff) {
             if (Hash::check($password, $staff->password)) {
+                $owner = $this->subscriptionAccess->ownerForActor($staff);
+                if ($owner instanceof User) {
+                    $this->subscriptionAccess->applyForUser($owner);
+                    if ($owner->isPosBlocked()) {
+                        throw new HttpException(
+                            403,
+                            'El acceso al sistema está bloqueado. El titular del negocio debe renovar la suscripción.',
+                        );
+                    }
+                }
+
                 return [
                     'type' => 'staff',
                     'actor' => $staff,

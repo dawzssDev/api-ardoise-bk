@@ -1,0 +1,117 @@
+================================================================================
+CHECKLIST DE PUBLICACIÓN — API Ardoise (producción)
+================================================================================
+Instrucciones:
+  - CREAR  = el archivo no existe en el servidor; súbelo completo.
+  - COPIAR = el archivo ya existe; reemplázalo con la versión local.
+================================================================================
+
+--------------------------------------------------------------------------------
+LOTE 5 — Límites de plan (Básico/Plus) + Stripe prices + user_ardo_vip
+Fecha: 2026-09-01
+--------------------------------------------------------------------------------
+
+CREAR  database/migrations/2026_09_01_210000_add_plan_limits_to_users_table.php
+CREAR  config/plans.php
+CREAR  app/Services/PlanLimitService.php
+
+COPIAR app/Models/User.php
+COPIAR app/Services/RegisterService.php
+COPIAR app/Services/StripeService.php
+COPIAR app/Services/SucursalService.php
+COPIAR app/Services/InsumoService.php
+COPIAR app/Services/ProductoService.php
+COPIAR app/Services/ProveedorService.php
+COPIAR app/Services/EmpleadoService.php
+COPIAR app/Services/RoleService.php
+COPIAR app/Services/StaffService.php
+COPIAR app/Services/MaeCuentaContaSucService.php
+COPIAR app/Services/StockProductoService.php
+COPIAR app/Services/StockInsumoService.php
+COPIAR app/Http/Resources/UserResource.php
+COPIAR app/Http/Controllers/Api/AuthController.php
+COPIAR app/Http/Controllers/Api/SucursalController.php
+COPIAR app/Http/Controllers/Api/ProductoController.php
+COPIAR app/Http/Controllers/Api/InsumoController.php
+COPIAR app/Http/Controllers/Api/EmpleadoController.php
+COPIAR app/Http/Controllers/Api/RoleController.php
+COPIAR app/Http/Controllers/Api/StockProductoController.php
+COPIAR app/Http/Controllers/Api/StockInsumoController.php
+COPIAR app/Services/CategoriaProductoService.php
+COPIAR app/Services/CategoriaInsumoService.php
+COPIAR app/Http/Controllers/Api/CategoriaProductoController.php
+COPIAR app/Http/Controllers/Api/CategoriaInsumoController.php
+COPIAR app/Services/PlanLimitService.php
+COPIAR config/services.php
+COPIAR database/factories/UserFactory.php  (solo si usas tests en server)
+Editar .env en Hostinger (STRIPE_PRICE_*)
+
+SQL (Hostinger / prod):
+  Ver ALTER users en database/hostinger_tablas.sql.txt
+  o: php artisan migrate
+
+.env producción (Price IDs):
+  STRIPE_PRICE_STANDARD_MENSUAL=price_1U9qQZQMCZvDbFTHnUAMRc4u
+  STRIPE_PRICE_STANDARD_ANUAL=price_1U9qXhQMCZvDbFTHIKDk6Ban
+  STRIPE_PRICE_PLUS_MENSUAL=price_1UAz4LQMCZvDbFTHmXAXGI2m
+  STRIPE_PRICE_PLUS_ANUAL=price_1UAz6uQMCZvDbFTH4w3cj16q
+
+Notas:
+  - Al completar registro se guardan límites Básico o Plus según price_id.
+  - user_ardo_vip=1 → sin límites. user_ardo_vip=0 → aplica límites.
+  - Al crear catálogos se valida el límite (422 si se excede).
+  - Usuarios ya existentes: actualizar límites manualmente o al renovar/cambiar plan (webhook).
+
+--------------------------------------------------------------------------------
+LOTE 5b — Fix "No hay un plan disponible" (configured_plans vacío)
+Fecha: 2026-09-01
+--------------------------------------------------------------------------------
+Causa: el .env solo NO basta. Laravel lee los price_id vía config/services.php
+y StripeService. Si esos archivos no están en el server, o si config está
+cacheada sin los STRIPE_PRICE_*, /api/auth/register/plans devuelve [].
+
+OBLIGATORIO subir (reemplazar):
+  COPIAR config/services.php
+  COPIAR config/plans.php
+  COPIAR app/Services/StripeService.php
+  COPIAR app/Http/Controllers/Api/AuthController.php
+
+.env en Hostinger (nombres exactos; NO uses STRIPE_SECRET_KEY):
+  STRIPE_KEY=pk_live_...
+  STRIPE_SECRET=sk_live_...
+  STRIPE_WEBHOOK_SECRET=whsec_...
+  STRIPE_CURRENCY=mxn
+  STRIPE_TRIAL_DAYS=0
+  STRIPE_PRICE_STANDARD_MENSUAL=price_1U9qQZQMCZvDbFTHnUAMRc4u
+  STRIPE_PRICE_STANDARD_ANUAL=price_1U9qXhQMCZvDbFTHIKDk6Ban
+  STRIPE_PRICE_PLUS_MENSUAL=price_1UAz4LQMCZvDbFTHmXAXGI2m
+  STRIPE_PRICE_PLUS_ANUAL=price_1UAz6uQMCZvDbFTH4w3cj16q
+
+Luego SIEMPRE:
+  php artisan config:clear
+  php artisan config:cache
+
+Verificar:
+  curl https://api-ardoise.dawzss.com/api/auth/register/plans
+  → configured_plans debe traer 4 planes (no [])
+
+--------------------------------------------------------------------------------
+LOTE 6 — CORS landing de suscripción (ardoise-info)
+Fecha: 2026-09-01
+--------------------------------------------------------------------------------
+
+COPIAR config/cors.php
+
+Editar .env en Hostinger (NO solo cors.php; Laravel lee CORS_ALLOWED_ORIGINS):
+  CORS_ALLOWED_ORIGINS=https://ardoise.dawzss.com,https://ardoise-info.dawzss.com
+
+Luego en el servidor:
+  php artisan config:clear
+  php artisan config:cache
+
+No cambies FRONTEND_URL (sigue siendo https://ardoise.dawzss.com).
+No agregues SANCTUM_STATEFUL_DOMAINS.
+
+================================================================================
+FIN
+================================================================================

@@ -30,6 +30,9 @@ class UserFactory extends Factory
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
             'remember_token' => Str::random(10),
+            // Tests: sin límites (VIP). El registro real aplica límites del plan.
+            'user_ardo_vip' => 1,
+            'block_POS' => 0,
         ];
     }
 

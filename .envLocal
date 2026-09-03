@@ -50,15 +50,21 @@ QUEUE_CONNECTION=database
 CACHE_STORE=database
 # CACHE_PREFIX=
 
-MAIL_MAILER=log
-MAIL_FROM_ADDRESS="noreply@ardoise.dawzss.com"
-MAIL_FROM_NAME="${APP_NAME}"
+# Hostinger mailbox SMTP
+MAIL_MAILER=smtp
+MAIL_SCHEME=smtps
+MAIL_HOST=smtp.hostinger.com
+MAIL_PORT=465
+MAIL_USERNAME=soporte.dawzss@dawzss.com
+MAIL_PASSWORD='S0ftw4r3$DAWZ_2026*'
+MAIL_FROM_ADDRESS="soporte.dawzss@dawzss.com"
+MAIL_FROM_NAME="Ardoise Soporte"
 
 # Frontend React (origen de producción)
 FRONTEND_URL=http://localhost:5173
 
 # Orígenes CORS permitidos (separados por coma). Sin cookies / Bearer only.
-CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://100.89.243.114:5173
+CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://100.89.243.114:5173,https://ardoise-info.dawzss.com
 
 # # Stripe LIVE (Dashboard → Developers → API keys / Webhooks)
 # # Nombres de este proyecto (NO uses STRIPE_SECRET_KEY / STRIPE_PUBLISHABLE_KEY)
@@ -69,7 +75,8 @@ CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhos
 # # Días de prueba al suscribirse. Cambia a 7, 3 o 0 (sin trial) cuando quieras.
 # STRIPE_TRIAL_DAYS=7
 # # Price IDs de Stripe (Dashboard → Products → Prices)
-# STRIPE_PRICE_PRUEBA=
-# STRIPE_PRICE_MENSUAL=
-# STRIPE_PRICE_ANUAL=
+STRIPE_PRICE_STANDARD_MENSUAL=price_1U9qQZQMCZvDbFTHnUAMRc4u
+STRIPE_PRICE_STANDARD_ANUAL=price_1U9qXhQMCZvDbFTHIKDk6Ban
+STRIPE_PRICE_PLUS_MENSUAL=price_1UAz4LQMCZvDbFTHmXAXGI2m
+STRIPE_PRICE_PLUS_ANUAL=price_1UAz6uQMCZvDbFTH4w3cj16q
 # # NO agregar SANCTUM_STATEFUL_DOMAINS: autenticación solo Bearer, sin cookies

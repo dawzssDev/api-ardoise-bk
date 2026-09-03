@@ -14,6 +14,10 @@ class StaffService
 {
     use ResolvesNegocioFromActor;
 
+    public function __construct(
+        private readonly PlanLimitService $planLimits,
+    ) {}
+
     /**
      * @param  array{
      *     username: string,
@@ -27,6 +31,7 @@ class StaffService
      */
     public function create(Negocio $negocio, User $user, array $data): Staff
     {
+        $this->planLimits->assertCanCreate($negocio, PlanLimitService::RESOURCE_STAFF);
         $this->assertRelationsBelongToNegocio($negocio, $data);
 
         return $negocio->staff()->create([

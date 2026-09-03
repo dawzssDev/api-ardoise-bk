@@ -77,11 +77,10 @@ class StockProductoController extends Controller
     {
         try {
             $negocio = $this->stocks->negocioForUser($request->user());
+            $stock = $this->stocks->upsert($negocio, $request->user(), $request->validated());
         } catch (HttpException $e) {
             return $this->errorResponse($e);
         }
-
-        $stock = $this->stocks->upsert($negocio, $request->user(), $request->validated());
 
         return response()->json([
             'success' => true,
@@ -100,13 +99,12 @@ class StockProductoController extends Controller
     {
         try {
             $negocio = $this->stocks->negocioForUser($request->user());
+            $data = $request->validated();
+            $sucursal = $this->stocks->findSucursalForNegocio($negocio, (int) $data['sucursal_id']);
+            $stocks = $this->stocks->upsertMany($negocio, $request->user(), $sucursal, $data['items']);
         } catch (HttpException $e) {
             return $this->errorResponse($e);
         }
-
-        $data = $request->validated();
-        $sucursal = $this->stocks->findSucursalForNegocio($negocio, (int) $data['sucursal_id']);
-        $stocks = $this->stocks->upsertMany($negocio, $request->user(), $sucursal, $data['items']);
 
         return response()->json([
             'success' => true,

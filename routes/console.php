@@ -18,3 +18,7 @@ Artisan::command('inspire', function () {
 Schedule::command('queue:work database --stop-when-empty --max-time=50')
     ->everyMinute()
     ->withoutOverlapping();
+
+Schedule::command('subscriptions:sync-access')
+    ->hourly()
+    ->withoutOverlapping();

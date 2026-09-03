@@ -14,6 +14,10 @@ class ProveedorService
 {
     use ResolvesNegocioFromActor;
 
+    public function __construct(
+        private readonly PlanLimitService $planLimits,
+    ) {}
+
     /**
      * @param  array{
      *     name: string,
@@ -29,6 +33,7 @@ class ProveedorService
      */
     public function create(Negocio $negocio, User|Staff $actor, array $data): Proveedor
     {
+        $this->planLimits->assertCanCreate($negocio, PlanLimitService::RESOURCE_PROVEEDORES);
         $auditId = $this->auditUserId($actor, $negocio);
 
         return $negocio->proveedores()->create([

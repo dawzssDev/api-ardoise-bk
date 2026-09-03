@@ -195,7 +195,7 @@ php artisan config:cache
 - [ ] 6to login fallido con mismo email → **429** (`Too many requests...`)
 - [ ] Stripe → “Send test webhook” al endpoint → **200**
 - [ ] En el servidor: `grep APP_DEBUG .env` → `APP_DEBUG=false`
-- [ ] CORS: el frontend en `https://ardoise.dawzss.com` puede llamar la API (preflight OK)
+- [ ] CORS: `https://ardoise.dawzss.com` y `https://ardoise-info.dawzss.com` pueden llamar la API (preflight OK)
 - [ ] `php artisan schedule:list` muestra el `queue:work` cada minuto
 
 ---

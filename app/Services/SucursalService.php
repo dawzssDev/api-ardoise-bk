@@ -11,6 +11,10 @@ class SucursalService
 {
     use ResolvesNegocioFromActor;
 
+    public function __construct(
+        private readonly PlanLimitService $planLimits,
+    ) {}
+
     /**
      * @param  array{
      *     type: string,
@@ -26,6 +30,8 @@ class SucursalService
      */
     public function create(Negocio $negocio, array $data): Sucursal
     {
+        $this->planLimits->assertCanCreate($negocio, PlanLimitService::RESOURCE_SUCURSALES);
+
         return $negocio->sucursales()->create([
             'type' => $data['type'],
             'name' => $data['name'],

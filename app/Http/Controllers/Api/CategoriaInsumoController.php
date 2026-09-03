@@ -53,11 +53,10 @@ class CategoriaInsumoController extends Controller
     {
         try {
             $negocio = $this->categorias->negocioForUser($request->user());
+            $categoria = $this->categorias->create($negocio, $request->validated());
         } catch (HttpException $e) {
             return $this->errorResponse($e);
         }
-
-        $categoria = $this->categorias->create($negocio, $request->validated());
 
         return response()->json([
             'success' => true,

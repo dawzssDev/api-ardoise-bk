@@ -19,11 +19,16 @@ class ProductoService
 
     private const IMAGE_DISK = 'productos';
 
+    public function __construct(
+        private readonly PlanLimitService $planLimits,
+    ) {}
+
     /**
      * @param  array{name: string, categoria_producto_id: int, price: float|int|string, image?: UploadedFile|null}  $data
      */
     public function create(Negocio $negocio, User|Staff $user, array $data): Producto
     {
+        $this->planLimits->assertCanCreate($negocio, PlanLimitService::RESOURCE_PRODUCTOS);
         $this->assertCategoriaActiva($negocio, (int) $data['categoria_producto_id']);
 
         $imagePath = null;
