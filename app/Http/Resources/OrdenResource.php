@@ -28,6 +28,9 @@ class OrdenResource extends JsonResource
             'customer_name' => $this->customer_name,
             'tipo_pago' => $this->payment_type,
             'payment_type' => $this->payment_type,
+            'pagos' => $this->pagoMixtoPayload(),
+            'pago_mixto' => $this->pagoMixtoPayload(),
+            'pagos_mixtos' => $this->pagoMixtoPayload(),
             'total_pago' => (string) $this->total,
             'total' => (string) $this->total,
             'estatus' => $this->status,
@@ -77,5 +80,19 @@ class OrdenResource extends JsonResource
             'id' => $staff->id,
             'username' => $staff->username,
         ];
+    }
+
+    /**
+     * Pagos de orden_pagos. Vacío si no hay registros o no se cargó la relación.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function pagoMixtoPayload(): array
+    {
+        if (! $this->relationLoaded('pagos')) {
+            return [];
+        }
+
+        return OrdenPagoResource::collection($this->pagos)->resolve();
     }
 }

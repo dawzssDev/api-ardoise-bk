@@ -67,6 +67,8 @@ class EnsureSubscriptionAccess
             'api/subscriptions/*',
             'api/payments',
             'api/payments/*',
+            'api/invoices',
+            'api/invoices/*',
         );
     }
 

@@ -95,11 +95,20 @@ class PasswordResetTest extends TestCase
         $mail = $notification->toMail($user);
         $html = $mail->render();
 
+        // El token solo va en el href (botón / texto). Blade escapa & → &amp;.
         $this->assertStringContainsString(
-            'https://ardoise.dawzss.com/reset-password?token=token-de-prueba&email=luis%40example.com',
+            'href="https://ardoise.dawzss.com/reset-password?token=token-de-prueba&amp;email=luis%40example.com"',
             $html,
         );
+        $this->assertStringContainsString('Restablecer contraseña', $html);
         $this->assertStringContainsString('Luis', $html);
+        $this->assertStringContainsString('#1E2539', $html);
+        $this->assertStringContainsString('#D7B794', $html);
+        $this->assertStringNotContainsString('copia y pega este enlace', $html);
+        $this->assertDoesNotMatchRegularExpression(
+            '/>(https?:\/\/[^<]*reset-password\?token=)/',
+            $html,
+        );
     }
 
     public function test_forgot_password_requires_email(): void

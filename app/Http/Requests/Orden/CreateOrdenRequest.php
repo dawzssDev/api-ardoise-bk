@@ -45,6 +45,34 @@ class CreateOrdenRequest extends FormRequest
             }
         }
 
+        if (! $this->exists('pagos')) {
+            foreach (['payments', 'formas_pago', 'formasPago'] as $alias) {
+                if ($this->exists($alias)) {
+                    $merge['pagos'] = $this->input($alias);
+                    break;
+                }
+            }
+        }
+
+        $pagos = $merge['pagos'] ?? $this->input('pagos');
+        if (is_array($pagos)) {
+            $normalizedPagos = [];
+            foreach ($pagos as $pago) {
+                if (! is_array($pago)) {
+                    continue;
+                }
+                $row = $pago;
+                if (! array_key_exists('payment_type', $row)) {
+                    $row['payment_type'] = $row['tipo_pago'] ?? $row['tipoPago'] ?? $row['TipoPAGO'] ?? null;
+                }
+                if (! array_key_exists('amount', $row)) {
+                    $row['amount'] = $row['monto'] ?? $row['Monto'] ?? $row['importe'] ?? null;
+                }
+                $normalizedPagos[] = $row;
+            }
+            $merge['pagos'] = $normalizedPagos;
+        }
+
         if (! $this->exists('status') && $this->exists('estatus')) {
             $merge['status'] = $this->input('estatus');
         }
@@ -119,7 +147,11 @@ class CreateOrdenRequest extends FormRequest
                     fn ($q) => $q->where('negocio_id', $negocioId)
                 ),
             ],
-            'payment_type' => ['required', 'string', 'max:30'],
+            // Un solo método (legacy) o cobro combinado con pagos[].
+            'payment_type' => ['required_without:pagos', 'nullable', 'string', 'max:30'],
+            'pagos' => ['required_without:payment_type', 'nullable', 'array', 'min:1'],
+            'pagos.*.payment_type' => ['required_with:pagos', 'string', 'max:30'],
+            'pagos.*.amount' => ['required_with:pagos', 'numeric', 'gt:0'],
             'status' => ['sometimes', 'integer', Rule::in(Orden::STATUSES)],
             'detalles' => ['required', 'array', 'min:1'],
             'detalles.*.producto_id' => [
@@ -161,7 +193,12 @@ class CreateOrdenRequest extends FormRequest
     {
         return [
             'customer_name.required' => 'El nombre del cliente/pedido es obligatorio.',
-            'payment_type.required' => 'El tipo de pago es obligatorio.',
+            'payment_type.required_without' => 'Envía tipo_pago o el arreglo pagos.',
+            'pagos.required_without' => 'Envía tipo_pago o el arreglo pagos.',
+            'pagos.min' => 'Debes enviar al menos una forma de pago.',
+            'pagos.*.payment_type.required_with' => 'Cada pago debe incluir tipo_pago.',
+            'pagos.*.amount.required_with' => 'Cada pago debe incluir monto.',
+            'pagos.*.amount.gt' => 'Cada monto de pago debe ser mayor a cero.',
             'detalles.required' => 'Debes enviar al menos un producto en la orden.',
             'detalles.min' => 'Debes enviar al menos un producto en la orden.',
             'detalles.*.producto_id.required' => 'El producto es obligatorio.',

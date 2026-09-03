@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\EmpleadoController;
 use App\Http\Controllers\Api\GastoEnTurnoController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\InsumoController;
+use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\MaeCuentaContaSucController;
 use App\Http\Controllers\Api\MaeCuentaContaSucDetalleController;
 use App\Http\Controllers\Api\NegocioController;
@@ -70,6 +71,11 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'subscription.access'])->grou
 
         Route::post('/payments/intent', [PaymentController::class, 'createIntent']);
         Route::get('/payments', [PaymentController::class, 'index']);
+
+        // Invoices Stripe (Mi Negocio): mensuales / anuales
+        Route::get('/invoices', [InvoiceController::class, 'index']);
+        Route::get('/invoices/{invoiceId}', [InvoiceController::class, 'show'])
+            ->where('invoiceId', 'in_[A-Za-z0-9_]+');
 
         Route::get('/subscriptions/plans', [SubscriptionController::class, 'plans']);
         Route::post('/subscriptions', [SubscriptionController::class, 'store']);

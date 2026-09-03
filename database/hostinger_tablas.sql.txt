@@ -838,6 +838,28 @@ CREATE TABLE `orden_detalles` (
 
 
 --------------------------------------------------------------------------------
+1m2) orden_pagos  (cobro combinado: varios métodos por orden)
+--------------------------------------------------------------------------------
+-- Equivalencias:
+--   TipoPAGO → payment_type (efectivo|tarjeta|transferencia|credito)
+--   Monto    → amount
+-- Si hay 2+ filas, ordenes.payment_type = 'mixto'.
+CREATE TABLE `orden_pagos` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `orden_id` bigint UNSIGNED NOT NULL,
+  `payment_type` varchar(30) NOT NULL,
+  `amount` decimal(10,2) NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `orden_pagos_orden_id_foreign` (`orden_id`),
+  KEY `orden_pagos_orden_tipo_idx` (`orden_id`, `payment_type`),
+  CONSTRAINT `orden_pagos_orden_id_foreign`
+    FOREIGN KEY (`orden_id`) REFERENCES `ordenes` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+--------------------------------------------------------------------------------
 1n) tb_turnos_cajas  (apertura / corte de caja)
 --------------------------------------------------------------------------------
 -- id_user = cajera (FK staff). user_id = maestro (si abre el turno).
@@ -1595,6 +1617,13 @@ ALTER TABLE `subscriptions`
 
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_09_02_100100_add_access_fields_to_subscriptions_table', 1);
+
+================================================================================
+CREATE orden_pagos — cobro combinado
+================================================================================
+-- Si `ordenes` ya existe, ejecuta el CREATE de la sección 1m2 y:
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_09_03_100000_create_orden_pagos_table', 1);
 
 ================================================================================
 FIN

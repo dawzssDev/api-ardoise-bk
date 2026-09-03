@@ -47,6 +47,8 @@ class ResetPasswordNotification extends Notification
                 'email' => $email,
                 'expireMinutes' => $expireMinutes,
                 'appName' => (string) config('app.name', 'Ardoise'),
+                // Logo embebido CID desde resources/views (vía $message->embed en el blade)
+                'logoPath' => public_path('images/emails/ardoise-logo.png'),
             ]);
     }
 }

@@ -12,6 +12,9 @@ class Orden extends Model
 
     public const PAYMENT_TYPES = ['credito', 'tarjeta', 'transferencia', 'efectivo'];
 
+    /** Orden cobrada con 2+ métodos (detalle en orden_pagos). */
+    public const PAYMENT_TYPE_MIXTO = 'mixto';
+
     /** Pendiente de cobro */
     public const STATUS_PENDIENTE = 1;
 
@@ -101,6 +104,11 @@ class Orden extends Model
     public function detalles(): HasMany
     {
         return $this->hasMany(OrdenDetalle::class);
+    }
+
+    public function pagos(): HasMany
+    {
+        return $this->hasMany(OrdenPago::class);
     }
 
     public function createdByStaff(): BelongsTo

@@ -11,10 +11,12 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Stripe\Exception\ApiErrorException;
 use Stripe\Exception\SignatureVerificationException;
+use Stripe\Invoice as StripeInvoice;
 use Stripe\PaymentIntent;
 use Stripe\StripeClient;
 use Stripe\Subscription as StripeSubscription;
 use Stripe\Webhook;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use UnexpectedValueException;
 
 class StripeService
@@ -900,6 +902,442 @@ class StripeService
             'subscription_id' => $subscriptionId,
             'intent_type' => $intentType,
         ];
+    }
+
+    /**
+     * Invoices Stripe del customer del usuario (mensuales / anuales).
+     *
+     * @return array{invoices: list<array<string, mixed>>, has_more: bool}
+     *
+     * @throws ApiErrorException
+     */
+    public function listInvoicesForUser(User $user, int $limit = 24, ?string $startingAfter = null): array
+    {
+        $customerId = $user->stripe_customer_id;
+        if (! is_string($customerId) || $customerId === '') {
+            return [
+                'invoices' => [],
+                'has_more' => false,
+            ];
+        }
+
+        $limit = max(1, min(100, $limit));
+        $params = [
+            'customer' => $customerId,
+            'limit' => $limit,
+            // API Basil: invoice.charge ya no existe. Reembolsos viven en payments → PI → charge.
+            'expand' => [
+                'data.payments.data.payment.payment_intent.latest_charge',
+            ],
+        ];
+        if (is_string($startingAfter) && $startingAfter !== '') {
+            $params['starting_after'] = $startingAfter;
+        }
+
+        try {
+            $collection = $this->client()->invoices->all($params);
+        } catch (ApiErrorException $e) {
+            Log::warning('Stripe invoices expand payments falló, reintento sin expand', [
+                'message' => $e->getMessage(),
+            ]);
+            unset($params['expand']);
+            $collection = $this->client()->invoices->all($params);
+        }
+
+        $invoices = [];
+        foreach ($collection->data ?? [] as $invoice) {
+            if (! $invoice instanceof StripeInvoice && ! is_object($invoice)) {
+                continue;
+            }
+            $invoices[] = $this->hydrateInvoiceRefunds($invoice, $this->mapInvoice($invoice));
+        }
+
+        return [
+            'invoices' => $invoices,
+            'has_more' => (bool) ($collection->has_more ?? false),
+        ];
+    }
+
+    /**
+     * Detalle de un invoice (valida que pertenezca al customer del usuario).
+     *
+     * @return array<string, mixed>
+     *
+     * @throws ApiErrorException
+     */
+    public function getInvoiceForUser(User $user, string $invoiceId): array
+    {
+        $customerId = $user->stripe_customer_id;
+        if (! is_string($customerId) || $customerId === '') {
+            throw new HttpException(404, 'No hay facturas asociadas a tu cuenta.');
+        }
+
+        try {
+            $invoice = $this->client()->invoices->retrieve($invoiceId, [
+                'expand' => [
+                    'payments.data.payment.payment_intent.latest_charge',
+                    'payments.data.payment.payment_intent.latest_charge.refunds',
+                ],
+            ]);
+        } catch (ApiErrorException $e) {
+            Log::warning('Stripe invoice retrieve expand payments falló, reintento simple', [
+                'invoice_id' => $invoiceId,
+                'message' => $e->getMessage(),
+            ]);
+            $invoice = $this->client()->invoices->retrieve($invoiceId);
+        }
+        $invoiceCustomer = is_string($invoice->customer ?? null)
+            ? $invoice->customer
+            : (is_object($invoice->customer ?? null) ? (string) ($invoice->customer->id ?? '') : '');
+
+        if ($invoiceCustomer === '' || $invoiceCustomer !== $customerId) {
+            throw new HttpException(404, 'Factura no encontrada.');
+        }
+
+        return $this->hydrateInvoiceRefunds($invoice, $this->mapInvoice($invoice));
+    }
+
+    /**
+     * @param  StripeInvoice|object  $invoice
+     * @return array<string, mixed>
+     */
+    public function mapInvoice(object $invoice): array
+    {
+        $amountDue = (int) ($invoice->amount_due ?? 0);
+        $amountPaid = (int) ($invoice->amount_paid ?? 0);
+        $currency = strtolower((string) ($invoice->currency ?? config('services.stripe.currency', 'mxn')));
+        $stripeStatus = strtolower((string) ($invoice->status ?? ''));
+
+        $lineDescription = null;
+        $interval = null;
+        $priceId = null;
+        $lines = $invoice->lines->data ?? [];
+        if (is_array($lines) && isset($lines[0]) && is_object($lines[0])) {
+            $line = $lines[0];
+            $lineDescription = $line->description ?? null;
+            $price = $line->price ?? $line->pricing?->price_details?->price ?? null;
+            if (is_object($price)) {
+                $priceId = $price->id ?? null;
+                $interval = $price->recurring->interval ?? null;
+            } elseif (is_string($price)) {
+                $priceId = $price;
+            }
+        }
+
+        $planKey = is_string($priceId) ? $this->resolvePlanByPriceId($priceId) : null;
+        $billingPeriod = match ($interval) {
+            'year' => 'anual',
+            'month' => 'mensual',
+            default => $interval,
+        };
+
+        $refundInfo = $this->resolveInvoiceRefundInfo($invoice);
+        $display = $this->resolveInvoiceDisplayStatus($stripeStatus, $refundInfo);
+
+        return [
+            'id' => (string) $invoice->id,
+            'number' => $invoice->number ?? null,
+            // Estado crudo de Stripe (draft|open|paid|uncollectible|void)
+            'status' => $stripeStatus,
+            'status_label' => $display['status_label'],
+            // Estado para UI (incluye reembolsos)
+            'display_status' => $display['display_status'],
+            'estatus' => $display['estatus'],
+            'currency' => $currency,
+            'amount_due_cents' => $amountDue,
+            'amount_paid_cents' => $amountPaid,
+            'amount_due' => round($amountDue / 100, 2),
+            'amount_paid' => round($amountPaid / 100, 2),
+            'amount_refunded_cents' => $refundInfo['amount_refunded_cents'],
+            'amount_refunded' => round($refundInfo['amount_refunded_cents'] / 100, 2),
+            'refunded' => $refundInfo['fully_refunded'],
+            'partially_refunded' => $refundInfo['partially_refunded'],
+            'refund_pending' => $refundInfo['refund_pending'],
+            'created_at' => isset($invoice->created)
+                ? Carbon::createFromTimestamp((int) $invoice->created)->toIso8601String()
+                : null,
+            'period_start' => isset($invoice->period_start)
+                ? Carbon::createFromTimestamp((int) $invoice->period_start)->toIso8601String()
+                : null,
+            'period_end' => isset($invoice->period_end)
+                ? Carbon::createFromTimestamp((int) $invoice->period_end)->toIso8601String()
+                : null,
+            'paid_at' => isset($invoice->status_transitions->paid_at)
+                ? Carbon::createFromTimestamp((int) $invoice->status_transitions->paid_at)->toIso8601String()
+                : null,
+            'voided_at' => isset($invoice->status_transitions->voided_at)
+                ? Carbon::createFromTimestamp((int) $invoice->status_transitions->voided_at)->toIso8601String()
+                : null,
+            'description' => $lineDescription ?? ($invoice->description ?? null),
+            'plan' => $planKey,
+            'billing_period' => $billingPeriod,
+            'invoice_pdf' => $invoice->invoice_pdf ?? null,
+            'hosted_invoice_url' => $invoice->hosted_invoice_url ?? null,
+        ];
+    }
+
+    /**
+     * Stripe Invoice.status no incluye "refunded". Se deriva del charge / credit notes.
+     *
+     * @return array{
+     *     amount_refunded_cents: int,
+     *     fully_refunded: bool,
+     *     partially_refunded: bool,
+     *     refund_pending: bool
+     * }
+     */
+    private function resolveInvoiceRefundInfo(object $invoice): array
+    {
+        $amountPaid = (int) ($invoice->amount_paid ?? 0);
+        $creditNotes = (int) ($invoice->post_payment_credit_notes_amount ?? 0);
+
+        $amountRefunded = $creditNotes;
+        $refundPending = false;
+
+        $charge = $invoice->charge ?? null;
+        $this->accumulateChargeRefunds($charge, $amountRefunded, $refundPending);
+
+        $paymentRows = $invoice->payments->data ?? [];
+        if (is_array($paymentRows)) {
+            foreach ($paymentRows as $row) {
+                if (! is_object($row)) {
+                    continue;
+                }
+
+                $payment = $row->payment ?? null;
+                $paymentIntent = is_object($payment) ? ($payment->payment_intent ?? null) : null;
+                $chargeFromPi = null;
+                if (is_object($paymentIntent)) {
+                    $chargeFromPi = $paymentIntent->latest_charge
+                        ?? ($paymentIntent->charges->data[0] ?? null);
+                }
+
+                $this->accumulateChargeRefunds($chargeFromPi, $amountRefunded, $refundPending);
+            }
+        }
+
+        $fullyRefunded = $amountPaid > 0 && $amountRefunded >= $amountPaid;
+        if (is_object($charge) && (bool) ($charge->refunded ?? false)) {
+            $fullyRefunded = true;
+        }
+
+        $partiallyRefunded = $amountRefunded > 0 && ! $fullyRefunded;
+
+        return [
+            'amount_refunded_cents' => $amountRefunded,
+            'fully_refunded' => $fullyRefunded,
+            'partially_refunded' => $partiallyRefunded,
+            'refund_pending' => $refundPending,
+        ];
+    }
+
+    /**
+     * Si el expand no trajo el cargo, consulta refunds por payment_intent (API Basil).
+     *
+     * @param  array<string, mixed>  $mapped
+     * @return array<string, mixed>
+     */
+    private function hydrateInvoiceRefunds(object $invoice, array $mapped): array
+    {
+        if (($mapped['display_status'] ?? '') !== 'paid') {
+            return $mapped;
+        }
+
+        if ((int) ($mapped['amount_refunded_cents'] ?? 0) > 0) {
+            return $mapped;
+        }
+
+        $intentIds = $this->paymentIntentIdsFromInvoice($invoice);
+        if ($intentIds === []) {
+            return $mapped;
+        }
+
+        $amountRefunded = 0;
+        $refundPending = false;
+
+        foreach ($intentIds as $intentId) {
+            try {
+                $refunds = $this->client()->refunds->all([
+                    'payment_intent' => $intentId,
+                    'limit' => 20,
+                ]);
+            } catch (ApiErrorException $e) {
+                Log::warning('No se pudieron listar refunds del payment_intent', [
+                    'payment_intent' => $intentId,
+                    'invoice_id' => $invoice->id ?? null,
+                    'message' => $e->getMessage(),
+                ]);
+
+                continue;
+            }
+
+            foreach ($refunds->data ?? [] as $refund) {
+                if (! is_object($refund)) {
+                    continue;
+                }
+                $status = strtolower((string) ($refund->status ?? ''));
+                if ($status === 'canceled' || $status === 'failed') {
+                    continue;
+                }
+                $amountRefunded += (int) ($refund->amount ?? 0);
+                if (in_array($status, ['pending', 'requires_action'], true)) {
+                    $refundPending = true;
+                }
+            }
+        }
+
+        if ($amountRefunded <= 0 && ! $refundPending) {
+            return $mapped;
+        }
+
+        $amountPaidCents = (int) ($mapped['amount_paid_cents'] ?? 0);
+        $refundInfo = [
+            'amount_refunded_cents' => $amountRefunded,
+            'fully_refunded' => $amountPaidCents > 0 && $amountRefunded >= $amountPaidCents,
+            'partially_refunded' => $amountRefunded > 0 && $amountRefunded < $amountPaidCents,
+            'refund_pending' => $refundPending,
+        ];
+        $display = $this->resolveInvoiceDisplayStatus('paid', $refundInfo);
+
+        return array_merge($mapped, [
+            'amount_refunded_cents' => $refundInfo['amount_refunded_cents'],
+            'amount_refunded' => round($refundInfo['amount_refunded_cents'] / 100, 2),
+            'refunded' => $refundInfo['fully_refunded'],
+            'partially_refunded' => $refundInfo['partially_refunded'],
+            'refund_pending' => $refundInfo['refund_pending'],
+            'status_label' => $display['status_label'],
+            'display_status' => $display['display_status'],
+            'estatus' => $display['estatus'],
+        ]);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function paymentIntentIdsFromInvoice(object $invoice): array
+    {
+        $ids = [];
+        $rows = $invoice->payments->data ?? [];
+        if (! is_array($rows)) {
+            return [];
+        }
+
+        foreach ($rows as $row) {
+            if (! is_object($row)) {
+                continue;
+            }
+            $payment = $row->payment ?? null;
+            $pi = is_object($payment) ? ($payment->payment_intent ?? null) : null;
+            if (is_object($pi) && isset($pi->id)) {
+                $ids[] = (string) $pi->id;
+            } elseif (is_string($pi) && str_starts_with($pi, 'pi_')) {
+                $ids[] = $pi;
+            }
+        }
+
+        return array_values(array_unique($ids));
+    }
+
+    /**
+     * @param  mixed  $charge
+     */
+    private function accumulateChargeRefunds(mixed $charge, int &$amountRefunded, bool &$refundPending): void
+    {
+        if (! is_object($charge)) {
+            return;
+        }
+
+        $amountRefunded = max($amountRefunded, (int) ($charge->amount_refunded ?? 0));
+        if ((bool) ($charge->refunded ?? false)) {
+            $amountPaidOnCharge = (int) ($charge->amount ?? $charge->amount_captured ?? 0);
+            if ($amountPaidOnCharge > 0) {
+                $amountRefunded = max($amountRefunded, $amountPaidOnCharge);
+            }
+        }
+
+        $refunds = $charge->refunds->data ?? null;
+        if (! is_array($refunds)) {
+            return;
+        }
+
+        foreach ($refunds as $refund) {
+            if (! is_object($refund)) {
+                continue;
+            }
+            $refundStatus = strtolower((string) ($refund->status ?? ''));
+            if (in_array($refundStatus, ['pending', 'requires_action'], true)) {
+                $refundPending = true;
+            }
+        }
+    }
+
+    /**
+     * @param  array{
+     *     amount_refunded_cents: int,
+     *     fully_refunded: bool,
+     *     partially_refunded: bool,
+     *     refund_pending: bool
+     * }  $refundInfo
+     * @return array{display_status: string, status_label: string, estatus: string}
+     */
+    private function resolveInvoiceDisplayStatus(string $stripeStatus, array $refundInfo): array
+    {
+        if ($refundInfo['refund_pending']) {
+            return [
+                'display_status' => 'refund_pending',
+                'status_label' => 'En proceso de reembolso',
+                'estatus' => 'En proceso de reembolso',
+            ];
+        }
+
+        if ($refundInfo['fully_refunded']) {
+            return [
+                'display_status' => 'refunded',
+                'status_label' => 'Reembolsada',
+                'estatus' => 'Reembolsada',
+            ];
+        }
+
+        if ($refundInfo['partially_refunded']) {
+            return [
+                'display_status' => 'partially_refunded',
+                'status_label' => 'Reembolso parcial',
+                'estatus' => 'Reembolso parcial',
+            ];
+        }
+
+        return match ($stripeStatus) {
+            'draft' => [
+                'display_status' => 'draft',
+                'status_label' => 'Borrador',
+                'estatus' => 'Borrador',
+            ],
+            'open' => [
+                'display_status' => 'open',
+                'status_label' => 'En proceso de pago',
+                'estatus' => 'En proceso de pago',
+            ],
+            'paid' => [
+                'display_status' => 'paid',
+                'status_label' => 'Pagada',
+                'estatus' => 'Pagada',
+            ],
+            'void' => [
+                'display_status' => 'void',
+                'status_label' => 'Anulada',
+                'estatus' => 'Anulada',
+            ],
+            'uncollectible' => [
+                'display_status' => 'uncollectible',
+                'status_label' => 'Incobrable',
+                'estatus' => 'Incobrable',
+            ],
+            default => [
+                'display_status' => $stripeStatus !== '' ? $stripeStatus : 'unknown',
+                'status_label' => $stripeStatus !== '' ? ucfirst($stripeStatus) : 'Desconocido',
+                'estatus' => $stripeStatus !== '' ? ucfirst($stripeStatus) : 'Desconocido',
+            ],
+        };
     }
 
     /**

@@ -112,6 +112,75 @@ Luego en el servidor:
 No cambies FRONTEND_URL (sigue siendo https://ardoise.dawzss.com).
 No agregues SANCTUM_STATEFUL_DOMAINS.
 
+--------------------------------------------------------------------------------
+LOTE 7 — Cobro combinado (varios métodos de pago por orden)
+Fecha: 2026-09-03
+--------------------------------------------------------------------------------
+
+CREAR  database/migrations/2026_09_03_100000_create_orden_pagos_table.php
+CREAR  app/Models/OrdenPago.php
+CREAR  app/Http/Resources/OrdenPagoResource.php
+
+COPIAR app/Models/Orden.php
+COPIAR app/Services/OrdenService.php
+COPIAR app/Services/TurnoCajaService.php
+COPIAR app/Http/Requests/Orden/CreateOrdenRequest.php
+COPIAR app/Http/Resources/OrdenResource.php
+
+SQL (Hostinger / prod):
+  CREATE TABLE orden_pagos ... (ver database/hostinger_tablas.sql.txt sección 1m2)
+  o: php artisan migrate
+
+Payload frontend (POST /api/ordenes):
+  {
+    "nombre_cliente": "...",
+    "sucursal_id": 1,
+    "pagos": [
+      {"tipo_pago": "efectivo", "monto": 100},
+      {"tipo_pago": "tarjeta", "monto": 50}
+    ],
+    "detalles": [...]
+  }
+  - La suma de montos DEBE = total de la orden.
+  - Compatibilidad: sigue aceptando tipo_pago único (sin pagos[]).
+  - Respuesta: tipo_pago = "mixto" + arreglo pagos[].
+  - Corte de caja: una fila en tb_ventas por método.
+
+--------------------------------------------------------------------------------
+LOTE 8 — Correo recuperación de contraseña (paleta + logo + sin token visible)
+Fecha: 2026-09-03
+--------------------------------------------------------------------------------
+
+CREAR  public/images/emails/ardoise-logo.png
+
+COPIAR resources/views/emails/reset-password.blade.php
+COPIAR app/Notifications/ResetPasswordNotification.php
+
+Notas:
+  - Paleta: #FDFDFA #E4E3E1 #D7B794 #1E2539
+  - Logo embebido CID (no depende de URL externa)
+  - El token solo va en href del botón/enlace "Restablecer contraseña"; no se muestra la URL en texto
+
+--------------------------------------------------------------------------------
+LOTE 9 — Invoices Stripe para Mi Negocio
+Fecha: 2026-09-03
+--------------------------------------------------------------------------------
+
+CREAR  app/Http/Controllers/Api/InvoiceController.php
+
+COPIAR app/Services/StripeService.php
+COPIAR routes/api.php
+COPIAR app/Http/Middleware/EnsureSubscriptionAccess.php
+
+Endpoints (solo usuario maestro):
+  GET /api/invoices
+  GET /api/invoices/{invoiceId}
+
+Respuesta incluye amount_*, period_*, billing_period (mensual|anual),
+invoice_pdf y hosted_invoice_url.
+También: status (Stripe), display_status / estatus / status_label
+(pagada, en proceso de pago, anulada, reembolsada, etc.).
+
 ================================================================================
 FIN
 ================================================================================

@@ -32,7 +32,8 @@ class OrdenService
      * @param  array{
      *     customer_name: string,
      *     sucursal_id?: int|null,
-     *     payment_type: string,
+     *     payment_type?: string|null,
+     *     pagos?: list<array{payment_type: string, amount: float|int|string}>|null,
      *     status?: int,
      *     detalles: list<array{
      *         producto_id: int,
@@ -55,14 +56,13 @@ class OrdenService
             throw new HttpException(422, 'La sucursal no pertenece a tu negocio.');
         }
 
-        $paymentType = $this->normalizePaymentType($data['payment_type']);
         $status = (int) ($data['status'] ?? Orden::STATUS_PAGADA);
 
         if (! in_array($status, Orden::STATUSES, true)) {
             throw new HttpException(422, 'Estatus de orden inválido.');
         }
 
-        return DB::transaction(function () use ($negocio, $actor, $data, $sucursalId, $paymentType, $status) {
+        return DB::transaction(function () use ($negocio, $actor, $data, $sucursalId, $status) {
             $turno = $this->turnosCaja->requireOpenTurnoForSale($negocio, $actor, $sucursalId);
 
             $auditId = $this->auditUserId($actor, $negocio);
@@ -70,21 +70,33 @@ class OrdenService
             $lineRows = $this->buildDetalleRows($negocio, $data['detalles'], $sucursalId);
 
             // Solo líneas NO diferidas suman al total cobrado hoy (caja).
-            $total = collect($lineRows)
+            $total = round((float) collect($lineRows)
                 ->reject(fn (array $row) => (bool) ($row['diferido'] ?? false))
-                ->sum(fn (array $row) => (float) $row['quantity'] * (float) $row['price']);
+                ->sum(fn (array $row) => (float) $row['quantity'] * (float) $row['price']), 2);
+
+            $pagos = $this->resolvePagosForCreate($data, $total);
+            $paymentType = count($pagos) === 1
+                ? $pagos[0]['payment_type']
+                : Orden::PAYMENT_TYPE_MIXTO;
 
             $orden = $negocio->ordenes()->create([
                 'order_number' => $orderNumber,
                 'sucursal_id' => $sucursalId,
                 'customer_name' => $data['customer_name'],
                 'payment_type' => $paymentType,
-                'total' => round($total, 2),
+                'total' => $total,
                 'status' => $status,
                 'created_by_staff_id' => $actor instanceof Staff ? $actor->id : null,
                 'created_by' => $auditId,
                 'updated_by' => $auditId,
             ]);
+
+            foreach ($pagos as $pago) {
+                $orden->pagos()->create([
+                    'payment_type' => $pago['payment_type'],
+                    'amount' => $pago['amount'],
+                ]);
+            }
 
             $now = now();
             foreach ($lineRows as $row) {
@@ -114,7 +126,7 @@ class OrdenService
                 Orden::STATUS_LISTA,
                 Orden::STATUS_ENTREGADA,
             ], true)) {
-                $this->turnosCaja->registerVentaFromOrden($turno, $orden, $actor);
+                $this->turnosCaja->registerVentaFromOrden($turno, $orden->load('pagos'), $actor);
             }
 
             return $orden->load($this->ordenRelations());
@@ -136,16 +148,7 @@ class OrdenService
         );
 
         $query = $negocio->ordenes()
-            ->with([
-                'sucursal:id,negocio_id,type,name',
-                'detalles.producto:id,negocio_id,name,price',
-                'detalles.advancedByStaff:'.self::STAFF_WITH,
-                'detalles.finishedByStaff:'.self::STAFF_WITH,
-                'createdByStaff:'.self::STAFF_WITH,
-                'advancedByStaff:'.self::STAFF_WITH,
-                'finishedByStaff:'.self::STAFF_WITH,
-                'createdBy:id,name,email',
-            ])
+            ->with($this->ordenRelations())
             ->latest('id');
 
         if ($resolvedSucursalId) {
@@ -547,6 +550,7 @@ class OrdenService
     {
         return [
             'sucursal:id,negocio_id,type,name',
+            'pagos',
             'detalles.producto:id,negocio_id,name,price',
             // No listar require_autori aquí: si la columna aún no existe en prod, el cobro rompe con 500.
             'detalles.tipoVenta:id,negocio_id,name,tipo_descuento,valor_descuento,diferir_cobro,requiere_empleado,status',
@@ -559,6 +563,73 @@ class OrdenService
             'createdBy:id,name,email',
             'updatedBy:id,name,email',
         ];
+    }
+
+    /**
+     * Normaliza pagos del request. Si solo viene payment_type, crea un pago con el total.
+     * La suma de montos debe coincidir con el total cobrable de la orden.
+     *
+     * @param  array<string, mixed>  $data
+     * @return list<array{payment_type: string, amount: float}>
+     */
+    private function resolvePagosForCreate(array $data, float $total): array
+    {
+        $rawPagos = $data['pagos'] ?? null;
+
+        if (! is_array($rawPagos) || $rawPagos === []) {
+            $singleType = $data['payment_type'] ?? null;
+            if (! is_string($singleType) || trim($singleType) === '') {
+                throw new HttpException(422, 'Envía tipo_pago o el arreglo pagos.');
+            }
+
+            if ($total <= 0) {
+                return [[
+                    'payment_type' => $this->normalizePaymentType($singleType),
+                    'amount' => 0.0,
+                ]];
+            }
+
+            return [[
+                'payment_type' => $this->normalizePaymentType($singleType),
+                'amount' => $total,
+            ]];
+        }
+
+        $pagos = [];
+        foreach ($rawPagos as $pago) {
+            if (! is_array($pago)) {
+                continue;
+            }
+
+            $type = $pago['payment_type'] ?? $pago['tipo_pago'] ?? null;
+            if (! is_string($type) || trim($type) === '') {
+                throw new HttpException(422, 'Cada pago debe incluir tipo_pago.');
+            }
+
+            $amount = round((float) ($pago['amount'] ?? $pago['monto'] ?? 0), 2);
+            if ($amount <= 0) {
+                throw new HttpException(422, 'Cada monto de pago debe ser mayor a cero.');
+            }
+
+            $pagos[] = [
+                'payment_type' => $this->normalizePaymentType($type),
+                'amount' => $amount,
+            ];
+        }
+
+        if ($pagos === []) {
+            throw new HttpException(422, 'Debes enviar al menos una forma de pago.');
+        }
+
+        $suma = round(array_sum(array_column($pagos, 'amount')), 2);
+        if (abs($suma - $total) > 0.009) {
+            throw new HttpException(
+                422,
+                "La suma de los pagos ({$suma}) debe ser igual al total de la orden ({$total}).",
+            );
+        }
+
+        return $pagos;
     }
 
     /**

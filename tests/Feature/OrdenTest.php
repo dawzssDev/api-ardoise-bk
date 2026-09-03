@@ -500,6 +500,95 @@ class OrdenTest extends TestCase
         ]);
     }
 
+    public function test_can_create_orden_with_split_payments(): void
+    {
+        [$user, $negocio, $sucursal, $esquite, $ramen] = $this->seedPosCatalog();
+
+        Sanctum::actingAs($user);
+        $open = $this->postJson('/api/turnos-caja/abrir', [
+            'sucursal_id' => $sucursal->id,
+            'fondo_inicial' => 100,
+        ])->assertCreated();
+        $turnoId = $open->json('data.turno.id');
+
+        $response = $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Mixto',
+            'sucursal_id' => $sucursal->id,
+            'pagos' => [
+                ['tipo_pago' => 'efectivo', 'monto' => 100],
+                ['tipo_pago' => 'tarjeta', 'monto' => 20],
+            ],
+            'detalles' => [
+                ['producto_id' => $esquite->id, 'cantidad' => 1, 'precio' => 50],
+                ['producto_id' => $ramen->id, 'cantidad' => 1, 'precio' => 70],
+            ],
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('data.orden.tipo_pago', Orden::PAYMENT_TYPE_MIXTO)
+            ->assertJsonPath('data.orden.total', '120.00')
+            ->assertJsonPath('data.orden.pago_mixto.0.tipo_pago', 'efectivo')
+            ->assertJsonPath('data.orden.pago_mixto.0.monto', '100.00')
+            ->assertJsonPath('data.orden.pago_mixto.1.tipo_pago', 'tarjeta')
+            ->assertJsonPath('data.orden.pago_mixto.1.monto', '20.00')
+            ->assertJsonPath('data.orden.pagos.0.tipo_pago', 'efectivo');
+
+        $ordenId = $response->json('data.orden.id');
+
+        $this->assertDatabaseCount('orden_pagos', 2);
+        $this->assertDatabaseHas('orden_pagos', [
+            'orden_id' => $ordenId,
+            'payment_type' => 'efectivo',
+            'amount' => 100.00,
+        ]);
+        $this->assertDatabaseHas('tb_ventas', [
+            'orden_id' => $ordenId,
+            'payment_type' => 'efectivo',
+            'total' => 100.00,
+        ]);
+        $this->assertDatabaseHas('tb_ventas', [
+            'orden_id' => $ordenId,
+            'payment_type' => 'tarjeta',
+            'total' => 20.00,
+        ]);
+        $this->assertDatabaseCount('tb_ventas', 2);
+
+        $this->getJson('/api/ordenes?per_page=15')
+            ->assertOk()
+            ->assertJsonPath('data.ordenes.0.id', $ordenId)
+            ->assertJsonPath('data.ordenes.0.pago_mixto.0.tipo_pago', 'efectivo')
+            ->assertJsonPath('data.ordenes.0.pago_mixto.1.tipo_pago', 'tarjeta');
+
+        $this->getJson("/api/turnos-caja/{$turnoId}/preview")
+            ->assertOk()
+            ->assertJsonPath('data.preview.total_ventas_efectivo', 100)
+            ->assertJsonPath('data.preview.total_ventas_tarjeta', 20)
+            ->assertJsonPath('data.preview.total_ventas', 120)
+            ->assertJsonPath('data.preview.efectivo_esperado', 100);
+    }
+
+    public function test_split_payment_sum_must_match_orden_total(): void
+    {
+        [$user, , $sucursal, $esquite] = $this->seedPosCatalog();
+
+        Sanctum::actingAs($user);
+        $this->abrirCaja($sucursal->id, 100);
+
+        $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Suma incorrecta',
+            'sucursal_id' => $sucursal->id,
+            'pagos' => [
+                ['tipo_pago' => 'efectivo', 'monto' => 30],
+                ['tipo_pago' => 'tarjeta', 'monto' => 10],
+            ],
+            'detalles' => [
+                ['producto_id' => $esquite->id, 'cantidad' => 1, 'precio' => 50],
+            ],
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('success', false);
+    }
+
     public function test_cancel_all_detalles_removes_venta_from_turno_corte(): void
     {
         [$user, $negocio, $sucursal, $esquite] = $this->seedPosCatalog();

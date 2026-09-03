@@ -220,44 +220,146 @@ class TurnoCajaService
         return $turno;
     }
 
-    public function registerVentaFromOrden(TurnoCaja $turno, Orden $orden, User|Staff $actor): Venta
+    /**
+     * Registra una fila en tb_ventas por cada forma de pago de la orden.
+     * Así el corte reparte efectivo/tarjeta/transferencia correctamente.
+     *
+     * @return list<Venta>
+     */
+    public function registerVentaFromOrden(TurnoCaja $turno, Orden $orden, User|Staff $actor): array
     {
-        return Venta::query()->create([
-            'turno_caja_id' => $turno->id,
-            'id_user' => $actor instanceof Staff ? $actor->id : $turno->id_user,
-            'orden_id' => $orden->id,
-            'order_number' => $orden->order_number,
-            'payment_type' => $orden->payment_type,
-            'total' => $orden->total,
-            'sucursal_id' => $orden->sucursal_id,
-            'negocio_id' => $orden->negocio_id,
-            'fecha_venta' => $orden->created_at ?? now(),
-        ]);
+        $orden->loadMissing('pagos');
+        $cajeraId = $actor instanceof Staff ? $actor->id : $turno->id_user;
+        $fecha = $orden->created_at ?? now();
+
+        $pagos = $orden->pagos;
+        if ($pagos->isEmpty()) {
+            return [
+                Venta::query()->create([
+                    'turno_caja_id' => $turno->id,
+                    'id_user' => $cajeraId,
+                    'orden_id' => $orden->id,
+                    'order_number' => $orden->order_number,
+                    'payment_type' => $orden->payment_type,
+                    'total' => $orden->total,
+                    'sucursal_id' => $orden->sucursal_id,
+                    'negocio_id' => $orden->negocio_id,
+                    'fecha_venta' => $fecha,
+                ]),
+            ];
+        }
+
+        $ventas = [];
+        foreach ($pagos as $pago) {
+            $monto = round((float) $pago->amount, 2);
+            if ($monto <= 0) {
+                continue;
+            }
+
+            $ventas[] = Venta::query()->create([
+                'turno_caja_id' => $turno->id,
+                'id_user' => $cajeraId,
+                'orden_id' => $orden->id,
+                'order_number' => $orden->order_number,
+                'payment_type' => $pago->payment_type,
+                'total' => $monto,
+                'sucursal_id' => $orden->sucursal_id,
+                'negocio_id' => $orden->negocio_id,
+                'fecha_venta' => $fecha,
+            ]);
+        }
+
+        return $ventas;
     }
 
     /**
-     * Sincroniza la venta del turno con el total actual de la orden
-     * (p. ej. tras cancelar productos). Si el total queda en 0, elimina la venta.
+     * Sincroniza ventas del turno con el total actual de la orden
+     * (p. ej. tras cancelar productos). Si el total queda en 0, elimina las ventas.
+     * Con cobro combinado, reparte el nuevo total proporcionalmente entre métodos.
+     *
+     * @return list<Venta>
      */
-    public function syncVentaFromOrden(Orden $orden): ?Venta
+    public function syncVentaFromOrden(Orden $orden): array
     {
-        $venta = Venta::query()->where('orden_id', $orden->id)->first();
-        if (! $venta) {
-            return null;
+        $orden->loadMissing('pagos');
+        $ventas = Venta::query()->where('orden_id', $orden->id)->orderBy('id')->get();
+        if ($ventas->isEmpty()) {
+            return [];
         }
 
         $total = round((float) $orden->total, 2);
         if ($total <= 0) {
-            $venta->delete();
+            Venta::query()->where('orden_id', $orden->id)->delete();
+            $orden->pagos()->update(['amount' => 0]);
 
-            return null;
+            return [];
         }
 
-        $venta->total = $total;
-        $venta->payment_type = $orden->payment_type;
-        $venta->save();
+        $pagos = $orden->pagos;
+        if ($pagos->isEmpty()) {
+            /** @var Venta $venta */
+            $venta = $ventas->first();
+            $venta->total = $total;
+            $venta->payment_type = $orden->payment_type;
+            $venta->save();
 
-        return $venta->refresh();
+            // Elimina ventas huérfanas si alguna vez hubo split.
+            Venta::query()
+                ->where('orden_id', $orden->id)
+                ->where('id', '!=', $venta->id)
+                ->delete();
+
+            return [$venta->refresh()];
+        }
+
+        $pagosSum = round((float) $pagos->sum(fn ($p) => (float) $p->amount), 2);
+        if ($pagosSum <= 0) {
+            Venta::query()->where('orden_id', $orden->id)->delete();
+
+            return [];
+        }
+
+        // Escala montos de pagos al nuevo total (cancelaciones parciales).
+        $scaled = [];
+        $assigned = 0.0;
+        $lastIndex = $pagos->count() - 1;
+        foreach ($pagos->values() as $index => $pago) {
+            if ($index === $lastIndex) {
+                $monto = round($total - $assigned, 2);
+            } else {
+                $monto = round(((float) $pago->amount / $pagosSum) * $total, 2);
+                $assigned = round($assigned + $monto, 2);
+            }
+            $pago->amount = max(0, $monto);
+            $pago->save();
+            $scaled[] = $pago;
+        }
+
+        // Recrea ventas 1:1 con los pagos (evita filas huérfanas).
+        Venta::query()->where('orden_id', $orden->id)->delete();
+
+        $base = $ventas->first();
+        $synced = [];
+        foreach ($scaled as $pago) {
+            $monto = round((float) $pago->amount, 2);
+            if ($monto <= 0) {
+                continue;
+            }
+
+            $synced[] = Venta::query()->create([
+                'turno_caja_id' => $base->turno_caja_id,
+                'id_user' => $base->id_user,
+                'orden_id' => $orden->id,
+                'order_number' => $orden->order_number,
+                'payment_type' => $pago->payment_type,
+                'total' => $monto,
+                'sucursal_id' => $orden->sucursal_id,
+                'negocio_id' => $orden->negocio_id,
+                'fecha_venta' => $base->fecha_venta ?? $orden->created_at ?? now(),
+            ]);
+        }
+
+        return $synced;
     }
 
     public function listVentas(TurnoCaja $turno, int $perPage = 50): LengthAwarePaginator
@@ -432,14 +534,11 @@ class TurnoCajaService
      */
     public function sumVentasByPayment(TurnoCaja $turno): array
     {
-        // Usa el total actual de la orden (si existe) para no contar ventas
-        // ya canceladas/ajustadas cuyo tb_ventas.total quedó desactualizado.
+        // Suma tb_ventas.total (ya sincronizado). Con cobro combinado hay
+        // varias filas por orden; NO usar ordenes.total o se duplicaría el monto.
         $rows = $turno->ventas()
-            ->leftJoin('ordenes', 'ordenes.id', '=', 'tb_ventas.orden_id')
-            ->selectRaw(
-                'tb_ventas.payment_type, SUM(COALESCE(ordenes.total, tb_ventas.total)) as suma'
-            )
-            ->groupBy('tb_ventas.payment_type')
+            ->selectRaw('payment_type, SUM(total) as suma')
+            ->groupBy('payment_type')
             ->pluck('suma', 'payment_type');
 
         $efectivo = round((float) ($rows['efectivo'] ?? 0), 2);
@@ -479,19 +578,24 @@ class TurnoCajaService
     }
 
     /**
-     * Alinea tb_ventas.total con ordenes.total (elimina ventas a $0).
+     * Alinea tb_ventas.total con ordenes.total / orden_pagos (elimina ventas a $0).
      */
     private function syncTurnoVentasWithOrdenes(TurnoCaja $turno): void
     {
-        $turno->ventas()
+        $ordenIds = $turno->ventas()
             ->whereNotNull('orden_id')
-            ->with('orden:id,total,payment_type')
+            ->distinct()
+            ->pluck('orden_id');
+
+        if ($ordenIds->isEmpty()) {
+            return;
+        }
+
+        Orden::query()
+            ->whereIn('id', $ordenIds)
+            ->with('pagos')
             ->get()
-            ->each(function (Venta $venta): void {
-                if ($venta->orden) {
-                    $this->syncVentaFromOrden($venta->orden);
-                }
-            });
+            ->each(fn (Orden $orden) => $this->syncVentaFromOrden($orden));
     }
 
     /**
