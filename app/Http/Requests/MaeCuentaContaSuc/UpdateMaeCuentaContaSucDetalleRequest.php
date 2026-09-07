@@ -124,7 +124,7 @@ class UpdateMaeCuentaContaSucDetalleRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'tipo_movimiento.in' => 'El tipo de movimiento debe ser deposito, transferencia, retiro, gasto, gasto_operativo, pago_proveedor, retiro_efectivo, venta_efectivo o venta_tarjeta.',
+            'tipo_movimiento.in' => 'El tipo de movimiento debe ser deposito, transferencia, retiro, gasto, gasto_operativo, pago_proveedor, retiro_efectivo, venta_efectivo, venta_tarjeta o comision_terminal.',
             'descripcion_movimiento.required' => 'La descripción del movimiento es obligatoria.',
             'descripcion_movimiento.max' => 'La descripción no puede superar :max caracteres.',
             'monto_movimiento.gt' => 'El monto del movimiento debe ser mayor a cero.',

@@ -243,9 +243,17 @@ class TurnoCajaTest extends TestCase
             'monto_movimiento' => 70.00,
             'status' => MaeCuentaContaSucDetalle::STATUS_ACEPTADO,
         ]);
+        $this->assertDatabaseHas('mae_cuenta_conta_suc_detalle', [
+            'tipo_movimiento' => MaeCuentaContaSucDetalle::TIPO_COMISION_TERMINAL,
+            'mae_cuenta_conta_suc_id' => $maestra->id,
+            'cuenta_origen_id' => $maestra->id,
+            'cuenta_destino_id' => null,
+            'monto_movimiento' => 2.10,
+            'status' => MaeCuentaContaSucDetalle::STATUS_ACEPTADO,
+        ]);
 
-        // Solo abona matriz; sucursal no se descuenta
-        $this->assertDatabaseHas('mae_cuenta_conta_suc', ['id' => $maestra->id, 'saldo' => 1160.00]);
+        // Abona matriz y descuenta comisión de terminal (3% de 70 = 2.10); sucursal no se descuenta
+        $this->assertDatabaseHas('mae_cuenta_conta_suc', ['id' => $maestra->id, 'saldo' => 1157.90]);
         $this->assertDatabaseHas('mae_cuenta_conta_suc', ['id' => $subcuenta->id, 'saldo' => 500.00]);
 
         $descripcion = MaeCuentaContaSucDetalle::query()
@@ -253,6 +261,132 @@ class TurnoCajaTest extends TestCase
             ->value('descripcion_movimiento');
         $this->assertStringContainsString('CORTE del', (string) $descripcion);
         $this->assertStringContainsString($sucursal->name, (string) $descripcion);
+
+        $descripcionComision = MaeCuentaContaSucDetalle::query()
+            ->where('tipo_movimiento', MaeCuentaContaSucDetalle::TIPO_COMISION_TERMINAL)
+            ->value('descripcion_movimiento');
+        $this->assertStringContainsString('comisión de terminal 3%', (string) $descripcionComision);
+        $this->assertStringContainsString($sucursal->name, (string) $descripcionComision);
+    }
+
+    public function test_gerencia_close_creates_comision_terminal_salida_from_corte_tarjeta(): void
+    {
+        [$user, $negocio, $sucursal] = $this->seedCajaContext();
+        $negocio->update(['comision_venta_tarjeta' => 3]);
+
+        $maestra = $negocio->cuentasContables()->create([
+            'tipo_cuenta' => MaeCuentaContaSuc::TIPO_MAESTRA,
+            'titulo_cuenta' => 'CUENTA MATRIZ',
+            'saldo' => 0,
+            'status' => MaeCuentaContaSuc::STATUS_ACTIVO,
+            'deleted' => MaeCuentaContaSuc::DELETED_NO,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+        $negocio->cuentasContables()->create([
+            'tipo_cuenta' => MaeCuentaContaSuc::TIPO_SUBCUENTA,
+            'sucursal_id' => $sucursal->id,
+            'titulo_cuenta' => 'SUCURSAL '.$sucursal->name,
+            'saldo' => 0,
+            'status' => MaeCuentaContaSuc::STATUS_ACTIVO,
+            'deleted' => MaeCuentaContaSuc::DELETED_NO,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        Sanctum::actingAs($user);
+        $turnoId = $this->postJson('/api/turnos-caja/abrir', [
+            'sucursal_id' => $sucursal->id,
+            'fondo_inicial' => 100,
+        ])->assertCreated()->json('data.turno.id');
+
+        $this->postJson("/api/turnos-caja/{$turnoId}/cerrar", [
+            'efectivo_real' => 100,
+        ])->assertOk();
+
+        $this->putJson("/api/turnos-caja/{$turnoId}/validacion-gerencia", [
+            'efectivo_contado' => 0,
+            'corte_tarjeta' => 1000,
+            'diferencia_gerencia' => 0,
+        ])->assertOk();
+
+        $this->postJson("/api/turnos-caja/{$turnoId}/cerrar", [
+            'status_gerencia' => 'cerrado',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('mae_cuenta_conta_suc_detalle', [
+            'tipo_movimiento' => MaeCuentaContaSucDetalle::TIPO_VENTA_TARJETA,
+            'cuenta_destino_id' => $maestra->id,
+            'monto_movimiento' => 1000.00,
+            'status' => MaeCuentaContaSucDetalle::STATUS_ACEPTADO,
+        ]);
+        $this->assertDatabaseHas('mae_cuenta_conta_suc_detalle', [
+            'tipo_movimiento' => MaeCuentaContaSucDetalle::TIPO_COMISION_TERMINAL,
+            'mae_cuenta_conta_suc_id' => $maestra->id,
+            'cuenta_origen_id' => $maestra->id,
+            'cuenta_destino_id' => null,
+            'monto_movimiento' => 30.00,
+            'status' => MaeCuentaContaSucDetalle::STATUS_ACEPTADO,
+        ]);
+        $this->assertDatabaseHas('mae_cuenta_conta_suc', [
+            'id' => $maestra->id,
+            'saldo' => 970.00,
+        ]);
+    }
+
+    public function test_gerencia_close_uses_negocio_comision_venta_tarjeta(): void
+    {
+        [$user, $negocio, $sucursal] = $this->seedCajaContext();
+        $negocio->update(['comision_venta_tarjeta' => 10]);
+
+        $maestra = $negocio->cuentasContables()->create([
+            'tipo_cuenta' => MaeCuentaContaSuc::TIPO_MAESTRA,
+            'titulo_cuenta' => 'CUENTA MATRIZ',
+            'saldo' => 0,
+            'status' => MaeCuentaContaSuc::STATUS_ACTIVO,
+            'deleted' => MaeCuentaContaSuc::DELETED_NO,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+        $negocio->cuentasContables()->create([
+            'tipo_cuenta' => MaeCuentaContaSuc::TIPO_SUBCUENTA,
+            'sucursal_id' => $sucursal->id,
+            'titulo_cuenta' => 'SUCURSAL',
+            'saldo' => 0,
+            'status' => MaeCuentaContaSuc::STATUS_ACTIVO,
+            'deleted' => MaeCuentaContaSuc::DELETED_NO,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        Sanctum::actingAs($user);
+        $turnoId = $this->postJson('/api/turnos-caja/abrir', [
+            'sucursal_id' => $sucursal->id,
+            'fondo_inicial' => 100,
+        ])->assertCreated()->json('data.turno.id');
+
+        $this->postJson("/api/turnos-caja/{$turnoId}/cerrar", [
+            'efectivo_real' => 100,
+        ])->assertOk();
+
+        $this->putJson("/api/turnos-caja/{$turnoId}/validacion-gerencia", [
+            'efectivo_gerencia' => 0,
+            'terminal_gerencia' => 1000,
+            'diferencia_gerencia' => 0,
+        ])->assertOk();
+
+        $this->postJson("/api/turnos-caja/{$turnoId}/cerrar", [
+            'status_gerencia' => 'cerrado',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('mae_cuenta_conta_suc_detalle', [
+            'tipo_movimiento' => MaeCuentaContaSucDetalle::TIPO_COMISION_TERMINAL,
+            'monto_movimiento' => 100.00,
+        ]);
+        $this->assertDatabaseHas('mae_cuenta_conta_suc', [
+            'id' => $maestra->id,
+            'saldo' => 900.00,
+        ]);
     }
 
     public function test_admin_close_subtracts_turno_gastos_from_sucursal_account(): void

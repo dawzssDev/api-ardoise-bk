@@ -22,6 +22,9 @@ class NegocioResource extends JsonResource
             'tax_regime' => $this->tax_regime,
             'tax_zip' => $this->tax_zip,
             'cfdi_use' => $this->cfdi_use,
+            'comision_venta_tarjeta' => (int) ($this->comision_venta_tarjeta ?? 3),
+            'comisionVentaTarjeta' => (int) ($this->comision_venta_tarjeta ?? 3),
+            'comicionVentaTarjeta' => (int) ($this->comision_venta_tarjeta ?? 3),
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
         ];

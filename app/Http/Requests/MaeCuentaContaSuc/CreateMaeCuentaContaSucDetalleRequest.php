@@ -173,7 +173,7 @@ class CreateMaeCuentaContaSucDetalleRequest extends FormRequest
             'mae_cuenta_conta_suc_id.required' => 'La cuenta contable es obligatoria.',
             'mae_cuenta_conta_suc_id.exists' => 'La cuenta contable no existe, no pertenece a tu negocio o está eliminada.',
             'tipo_movimiento.required' => 'El tipo de movimiento es obligatorio.',
-            'tipo_movimiento.in' => 'El tipo de movimiento debe ser deposito, transferencia, retiro, gasto, gasto_operativo, pago_proveedor, retiro_efectivo, venta_efectivo o venta_tarjeta.',
+            'tipo_movimiento.in' => 'El tipo de movimiento debe ser deposito, transferencia, retiro, gasto, gasto_operativo, pago_proveedor, retiro_efectivo, venta_efectivo, venta_tarjeta o comision_terminal.',
             'descripcion_movimiento.required' => 'La descripción del movimiento es obligatoria.',
             'descripcion_movimiento.max' => 'La descripción no puede superar :max caracteres.',
             'monto_movimiento.required' => 'El monto del movimiento es obligatorio.',

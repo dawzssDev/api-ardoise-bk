@@ -324,6 +324,7 @@ CREATE TABLE `negocios` (
   `tax_regime` varchar(10) NULL DEFAULT NULL,
   `tax_zip` varchar(10) NULL DEFAULT NULL,
   `cfdi_use` varchar(10) NULL DEFAULT NULL,
+  `comision_venta_tarjeta` tinyint UNSIGNED NOT NULL DEFAULT 3,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -1502,11 +1503,12 @@ CREATE TABLE `mae_cuenta_conta_suc` (
     FOREIGN KEY (`updated_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- tipo_movimiento: deposito | transferencia | retiro | venta_efectivo | venta_tarjeta
+-- tipo_movimiento: deposito | transferencia | retiro | venta_efectivo | venta_tarjeta | comision_terminal
 -- status detalle: 0 inactivo | 1 aceptado | 2 pendiente | 3 rechazado
 --   pendiente transferencia = maestra→subcuenta (descuenta maestra al crear; abona sucursal al aceptar)
 --   pendiente retiro = subcuenta→maestra (sin mover saldo al crear; descuenta sucursal + abona maestra al aceptar)
 --   venta_efectivo / venta_tarjeta = corte gerencial (montos = efectivo_gerencia / terminal_gerencia; abona solo matriz; origen = subcuenta; status aceptado)
+--   comision_terminal = salida en matriz por % comision_venta_tarjeta del negocio sobre terminal_gerencia
 -- cuenta_origen_id: NULL en depósito (opcional); obligatorio en transferencia/retiro
 -- monto_movimiento: monto del movimiento
 -- cuenta_destino_id: cuenta que recibe (si no se envía, usa mae_cuenta_conta_suc_id)
@@ -1648,6 +1650,16 @@ ALTER TABLE `tb_turnos_cajas`
 
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_09_03_140000_add_validacion_gerencia_to_tb_turnos_cajas_table', 1);
+
+================================================================================
+ALTER negocios — comision_venta_tarjeta (0-100, default 3)
+================================================================================
+-- Solo si `negocios` ya existe SIN esta columna:
+ALTER TABLE `negocios`
+  ADD COLUMN `comision_venta_tarjeta` tinyint UNSIGNED NOT NULL DEFAULT 3 AFTER `cfdi_use`;
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_09_07_130000_add_comision_venta_tarjeta_to_negocios_table', 1);
 
 ================================================================================
 FIN

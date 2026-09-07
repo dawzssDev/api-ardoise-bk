@@ -95,6 +95,7 @@ class MaeCuentaContaSucDetalleResource extends JsonResource
             MaeCuentaContaSucDetalle::TIPO_TRANSFERENCIA => 'transferencia',
             MaeCuentaContaSucDetalle::TIPO_VENTA_EFECTIVO => 'venta_efectivo',
             MaeCuentaContaSucDetalle::TIPO_VENTA_TARJETA => 'venta_tarjeta',
+            MaeCuentaContaSucDetalle::TIPO_COMISION_TERMINAL => 'comision_terminal',
             MaeCuentaContaSucDetalle::TIPO_GASTO,
             MaeCuentaContaSucDetalle::TIPO_GASTO_OPERATIVO,
             MaeCuentaContaSucDetalle::TIPO_PAGO_PROVEEDOR,

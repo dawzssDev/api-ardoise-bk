@@ -22,6 +22,9 @@ class MaeCuentaContaSucDetalle extends Model
     /** Venta con tarjeta del corte gerencial → abona cuenta matriz. */
     public const TIPO_VENTA_TARJETA = 'venta_tarjeta';
 
+    /** Comisión de terminal del corte gerencial → descuenta cuenta matriz. */
+    public const TIPO_COMISION_TERMINAL = 'comision_terminal';
+
     /** Gasto directo sobre una cuenta (no es traspaso). */
     public const TIPO_GASTO = 'gasto';
 
@@ -36,6 +39,7 @@ class MaeCuentaContaSucDetalle extends Model
         self::TIPO_GASTO_OPERATIVO,
         self::TIPO_PAGO_PROVEEDOR,
         self::TIPO_RETIRO_EFECTIVO,
+        self::TIPO_COMISION_TERMINAL,
     ];
 
     public const TIPOS_MOVIMIENTO = [
@@ -44,6 +48,7 @@ class MaeCuentaContaSucDetalle extends Model
         self::TIPO_RETIRO,
         self::TIPO_VENTA_EFECTIVO,
         self::TIPO_VENTA_TARJETA,
+        self::TIPO_COMISION_TERMINAL,
         self::TIPO_GASTO,
         self::TIPO_GASTO_OPERATIVO,
         self::TIPO_PAGO_PROVEEDOR,
@@ -137,6 +142,9 @@ class MaeCuentaContaSucDetalle extends Model
             'venta_tarjeta' => self::TIPO_VENTA_TARJETA,
             'venta_con_tarjeta' => self::TIPO_VENTA_TARJETA,
             'ventatarjeta' => self::TIPO_VENTA_TARJETA,
+            'comision_terminal' => self::TIPO_COMISION_TERMINAL,
+            'comision_de_terminal' => self::TIPO_COMISION_TERMINAL,
+            'comisionterminal' => self::TIPO_COMISION_TERMINAL,
             'gasto' => self::TIPO_GASTO,
             'gasto_operativo' => self::TIPO_GASTO_OPERATIVO,
             'gastooperativo' => self::TIPO_GASTO_OPERATIVO,

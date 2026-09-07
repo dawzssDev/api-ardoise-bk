@@ -127,12 +127,13 @@ class MaeCuentaContaSucDetalleService
     /**
      * Al autorizar corte gerencial: abona a cuenta matriz el efectivo_gerencia
      * y terminal_gerencia capturados por gerencia (no las ventas del POS).
+     * Si hay venta con tarjeta, descuenta la comisión de terminal configurada en el negocio.
      *
      * @return list<MaeCuentaContaSucDetalle>
      */
     public function registrarVentasCorteGerencia(TurnoCaja $turno, User|Staff $actor): array
     {
-        $turno->loadMissing('sucursal:id,name');
+        $turno->loadMissing(['sucursal:id,name', 'negocio:id,comision_venta_tarjeta']);
 
         $maestra = MaeCuentaContaSuc::query()
             ->where('negocio_id', $turno->negocio_id)
@@ -175,6 +176,10 @@ class MaeCuentaContaSucDetalleService
         $descripcion = $this->descripcionCorteGerencia($turno);
         $auditId = $this->auditUserId($actor, $turno->negocio);
         $creados = [];
+        $montoTarjeta = round((float) $terminalGerencia, 2);
+        $porcentajeComision = $this->porcentajeComisionVentaTarjeta($turno);
+        $montoComision = $this->montoComisionTerminal($montoTarjeta, $porcentajeComision);
+        $descripcionComision = $this->descripcionComisionTerminalCorteGerencia($turno, $porcentajeComision);
 
         $lineas = [
             [
@@ -183,11 +188,20 @@ class MaeCuentaContaSucDetalleService
             ],
             [
                 'tipo' => MaeCuentaContaSucDetalle::TIPO_VENTA_TARJETA,
-                'monto' => round((float) $terminalGerencia, 2),
+                'monto' => $montoTarjeta,
             ],
         ];
 
-        return DB::transaction(function () use ($maestra, $subcuenta, $lineas, $descripcion, $auditId, $creados) {
+        return DB::transaction(function () use (
+            $maestra,
+            $subcuenta,
+            $lineas,
+            $descripcion,
+            $auditId,
+            $creados,
+            $montoComision,
+            $descripcionComision,
+        ) {
             $destino = $this->lockCuenta($maestra->id);
 
             foreach ($lineas as $linea) {
@@ -206,6 +220,25 @@ class MaeCuentaContaSucDetalleService
                     'monto_movimiento' => $monto,
                     'cuenta_destino_id' => $maestra->id,
                     'descripcion_movimiento' => $descripcion,
+                    'status' => MaeCuentaContaSucDetalle::STATUS_ACEPTADO,
+                    'deleted' => MaeCuentaContaSucDetalle::DELETED_NO,
+                    'created_by' => $auditId,
+                    'updated_by' => $auditId,
+                ]);
+            }
+
+            if ($montoComision > 0) {
+                $monto = number_format($montoComision, 2, '.', '');
+                $this->debit($destino, $monto);
+                $destino->refresh();
+
+                $creados[] = $maestra->detalles()->create([
+                    'negocio_id' => $maestra->negocio_id,
+                    'tipo_movimiento' => MaeCuentaContaSucDetalle::TIPO_COMISION_TERMINAL,
+                    'cuenta_origen_id' => $maestra->id,
+                    'monto_movimiento' => $monto,
+                    'cuenta_destino_id' => null,
+                    'descripcion_movimiento' => $descripcionComision,
                     'status' => MaeCuentaContaSucDetalle::STATUS_ACEPTADO,
                     'deleted' => MaeCuentaContaSucDetalle::DELETED_NO,
                     'created_by' => $auditId,
@@ -448,6 +481,27 @@ class MaeCuentaContaSucDetalleService
         $sucursal = trim((string) ($turno->sucursal?->name ?? 'SUCURSAL'));
 
         return "CORTE del {$fechaTxt} de {$sucursal}";
+    }
+
+    private function descripcionComisionTerminalCorteGerencia(TurnoCaja $turno, int $porcentaje): string
+    {
+        return $this->descripcionCorteGerencia($turno)." (comisión de terminal {$porcentaje}%)";
+    }
+
+    private function porcentajeComisionVentaTarjeta(TurnoCaja $turno): int
+    {
+        $porcentaje = (int) ($turno->negocio?->comision_venta_tarjeta ?? 3);
+
+        return max(0, min(100, $porcentaje));
+    }
+
+    private function montoComisionTerminal(float $montoTarjeta, int $porcentaje): float
+    {
+        if ($montoTarjeta <= 0 || $porcentaje <= 0) {
+            return 0.0;
+        }
+
+        return round($montoTarjeta * $porcentaje / 100, 2);
     }
 
     private function descripcionSobranteCorteGerencia(TurnoCaja $turno): string
@@ -780,7 +834,7 @@ class MaeCuentaContaSucDetalleService
     {
         $normalized = MaeCuentaContaSucDetalle::normalizeTipoMovimiento($tipo);
         if ($normalized === null) {
-            throw new HttpException(422, 'El tipo de movimiento debe ser deposito, transferencia, retiro, gasto, gasto_operativo, pago_proveedor, retiro_efectivo, venta_efectivo o venta_tarjeta.');
+            throw new HttpException(422, 'El tipo de movimiento debe ser deposito, transferencia, retiro, gasto, gasto_operativo, pago_proveedor, retiro_efectivo, venta_efectivo, venta_tarjeta o comision_terminal.');
         }
 
         return $normalized;

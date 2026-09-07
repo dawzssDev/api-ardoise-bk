@@ -21,6 +21,11 @@ class UpdateNegocioRequest extends FormRequest
             'tax_regime' => ['regimen_fiscal'],
             'tax_zip' => ['codigo_postal_fiscal'],
             'cfdi_use' => ['uso_cfdi'],
+            'comision_venta_tarjeta' => [
+                'comisionVentaTarjeta',
+                'comicionVentaTarjeta',
+                'comicion_venta_tarjeta',
+            ],
         ];
 
         $merge = [];
@@ -57,6 +62,7 @@ class UpdateNegocioRequest extends FormRequest
             'tax_regime' => ['sometimes', 'nullable', 'string', 'max:10'],
             'tax_zip' => ['sometimes', 'nullable', 'string', 'max:10'],
             'cfdi_use' => ['sometimes', 'nullable', 'string', 'max:10'],
+            'comision_venta_tarjeta' => ['sometimes', 'integer', 'min:0', 'max:100'],
         ];
     }
 
@@ -71,6 +77,9 @@ class UpdateNegocioRequest extends FormRequest
             'phone.required' => 'El teléfono es obligatorio.',
             'phone.max' => 'El teléfono no puede superar :max caracteres.',
             'needs_invoice.boolean' => 'El campo de factura debe ser verdadero o falso.',
+            'comision_venta_tarjeta.integer' => 'La comisión de venta con tarjeta debe ser un número entero.',
+            'comision_venta_tarjeta.min' => 'La comisión de venta con tarjeta no puede ser menor a :min.',
+            'comision_venta_tarjeta.max' => 'La comisión de venta con tarjeta no puede ser mayor a :max.',
         ];
     }
 }

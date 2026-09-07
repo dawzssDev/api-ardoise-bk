@@ -20,12 +20,14 @@ class Negocio extends Model
         'tax_regime',
         'tax_zip',
         'cfdi_use',
+        'comision_venta_tarjeta',
     ];
 
     protected function casts(): array
     {
         return [
             'needs_invoice' => 'boolean',
+            'comision_venta_tarjeta' => 'integer',
         ];
     }
 
