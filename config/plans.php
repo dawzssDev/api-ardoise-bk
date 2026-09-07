@@ -16,7 +16,7 @@ return [
 
         'basico' => [
             'label' => 'Básico',
-            'limit_sucursales' => 2,
+            'limit_sucursales' => 1,
             'limit_insumos' => 150,
             'limit_stock_insumos' => 150,
             'limit_proveedores' => 30,
@@ -30,14 +30,14 @@ return [
 
         'plus' => [
             'label' => 'Plus',
-            'limit_sucursales' => 4,
+            'limit_sucursales' => 3,
             'limit_insumos' => 400,
             'limit_stock_insumos' => 400,
             'limit_proveedores' => 75,
             'limit_productos' => 300,
             'limit_stock_productos' => 300,
             'limit_personal' => 70,
-            'limit_cuentas_contables' => 5,
+            'limit_cuentas_contables' => 4,
             'limit_roles' => 12,
             'limit_staff' => 20,
         ],

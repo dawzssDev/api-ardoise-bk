@@ -1125,7 +1125,7 @@ class TurnoCajaService
         return [
             'cajera:id,negocio_id,username,sucursal_id,empleado_id,status',
             'user:id,name,email',
-            'sucursal:id,negocio_id,type,name',
+            'sucursal:id,negocio_id,type,name,monto_maximo_efectivo',
         ];
     }
 
@@ -1514,7 +1514,7 @@ class TurnoCajaService
             'cajera:id,negocio_id,username,sucursal_id,empleado_id,status',
             'user:id,name,email',
             'validadoPorGerencia:id,name,email',
-            'sucursal:id,negocio_id,type,name',
+            'sucursal:id,negocio_id,type,name,monto_maximo_efectivo',
         ];
     }
 }

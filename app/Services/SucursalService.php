@@ -25,7 +25,8 @@ class SucursalService
      *     city?: string|null,
      *     state?: string|null,
      *     postal_code?: string|null,
-     *     opened_year?: int|null
+     *     opened_year?: int|null,
+     *     monto_maximo_efectivo?: float|int|string|null
      * }  $data
      */
     public function create(Negocio $negocio, array $data): Sucursal
@@ -42,6 +43,7 @@ class SucursalService
             'state' => $data['state'] ?? null,
             'postal_code' => $data['postal_code'] ?? null,
             'opened_year' => $data['opened_year'] ?? null,
+            'monto_maximo_efectivo' => $data['monto_maximo_efectivo'] ?? null,
         ]);
     }
 

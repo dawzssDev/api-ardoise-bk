@@ -25,6 +25,13 @@ class UpdateSucursalRequest extends FormRequest
             'state' => ['estado'],
             'postal_code' => ['codigo_postal', 'cp', 'zip'],
             'opened_year' => ['anio_apertura', 'año_apertura', 'openedYear'],
+            'monto_maximo_efectivo' => [
+                'montoMaximoEfectivo',
+                'maximo_efectivo',
+                'maximoEfectivo',
+                'monto_maximo_caja',
+                'montoMaximoCaja',
+            ],
         ];
 
         $merge = [];
@@ -74,6 +81,7 @@ class UpdateSucursalRequest extends FormRequest
             'state' => ['sometimes', 'nullable', 'string', 'max:100'],
             'postal_code' => ['sometimes', 'nullable', 'string', 'max:20'],
             'opened_year' => ['sometimes', 'nullable', 'integer', 'min:1900', 'max:'.((int) date('Y') + 1)],
+            'monto_maximo_efectivo' => ['sometimes', 'nullable', 'numeric', 'min:0'],
         ];
     }
 
@@ -91,6 +99,8 @@ class UpdateSucursalRequest extends FormRequest
             'opened_year.integer' => 'El año de apertura debe ser un número.',
             'opened_year.min' => 'El año de apertura no es válido.',
             'opened_year.max' => 'El año de apertura no es válido.',
+            'monto_maximo_efectivo.numeric' => 'El monto máximo de efectivo debe ser un número.',
+            'monto_maximo_efectivo.min' => 'El monto máximo de efectivo no puede ser negativo.',
         ];
     }
 

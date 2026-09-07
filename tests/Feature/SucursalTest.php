@@ -52,4 +52,84 @@ class SucursalTest extends TestCase
             'name' => 'MERCADO DE ABASTOS',
         ]);
     }
+
+    public function test_user_can_create_sucursal_with_monto_maximo_efectivo(): void
+    {
+        $user = User::factory()->create();
+        $user->negocio()->create([
+            'name' => 'Negocio Test',
+            'phone' => '6670000000',
+            'needs_invoice' => false,
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/sucursales', [
+            'type' => Sucursal::TYPE_SUCURSAL,
+            'name' => 'Centro',
+            'montoMaximoEfectivo' => 5000,
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.sucursal.monto_maximo_efectivo', '5000.00')
+            ->assertJsonPath('data.sucursal.montoMaximoEfectivo', '5000.00');
+
+        $this->assertDatabaseHas('sucursales', [
+            'name' => 'Centro',
+            'monto_maximo_efectivo' => 5000.00,
+        ]);
+    }
+
+    public function test_user_can_update_monto_maximo_efectivo(): void
+    {
+        $user = User::factory()->create();
+        $negocio = $user->negocio()->create([
+            'name' => 'Negocio Test',
+            'phone' => '6670000000',
+            'needs_invoice' => false,
+        ]);
+        $sucursal = $negocio->sucursales()->create([
+            'type' => Sucursal::TYPE_SUCURSAL,
+            'name' => 'Norte',
+            'is_active' => true,
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $this->putJson('/api/sucursales/'.$sucursal->id, [
+            'maximo_efectivo' => 3500.50,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.sucursal.monto_maximo_efectivo', '3500.50');
+
+        $this->assertDatabaseHas('sucursales', [
+            'id' => $sucursal->id,
+            'monto_maximo_efectivo' => 3500.50,
+        ]);
+    }
+
+    public function test_monto_maximo_efectivo_rejects_negative(): void
+    {
+        $user = User::factory()->create();
+        $negocio = $user->negocio()->create([
+            'name' => 'Negocio Test',
+            'phone' => '6670000000',
+            'needs_invoice' => false,
+        ]);
+        $sucursal = $negocio->sucursales()->create([
+            'type' => Sucursal::TYPE_SUCURSAL,
+            'name' => 'Sur',
+            'is_active' => true,
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $this->putJson('/api/sucursales/'.$sucursal->id, [
+            'monto_maximo_efectivo' => -10,
+        ])->assertStatus(422);
+
+        $this->assertDatabaseHas('sucursales', [
+            'id' => $sucursal->id,
+            'monto_maximo_efectivo' => null,
+        ]);
+    }
 }

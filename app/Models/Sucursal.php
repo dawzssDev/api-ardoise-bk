@@ -30,6 +30,7 @@ class Sucursal extends Model
         'state',
         'postal_code',
         'opened_year',
+        'monto_maximo_efectivo',
     ];
 
     protected function casts(): array
@@ -37,7 +38,29 @@ class Sucursal extends Model
         return [
             'is_active' => 'boolean',
             'opened_year' => 'integer',
+            'monto_maximo_efectivo' => 'decimal:2',
         ];
+    }
+
+    public function montoMaximoEfectivo(): ?float
+    {
+        if ($this->monto_maximo_efectivo === null) {
+            return null;
+        }
+
+        $monto = round((float) $this->monto_maximo_efectivo, 2);
+
+        return $monto > 0 ? $monto : null;
+    }
+
+    public function excedeMontoMaximoEfectivo(float $efectivoEnCaja): bool
+    {
+        $maximo = $this->montoMaximoEfectivo();
+        if ($maximo === null) {
+            return false;
+        }
+
+        return $efectivoEnCaja - $maximo > 0.009;
     }
 
     public function negocio(): BelongsTo

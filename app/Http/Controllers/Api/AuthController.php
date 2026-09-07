@@ -271,7 +271,7 @@ class AuthController extends Controller
             /** @var Staff $actor */
             $actor->load([
                 'negocio',
-                'sucursal:id,negocio_id,type,name',
+                'sucursal:id,negocio_id,type,name,monto_maximo_efectivo',
                 'role:id,negocio_id,name,permissions,status',
                 'empleado:id,negocio_id,first_name,paternal_surname,maternal_surname,employee_number,status',
             ]);
@@ -341,7 +341,7 @@ class AuthController extends Controller
         if ($actor instanceof Staff) {
             $actor->load([
                 'negocio',
-                'sucursal:id,negocio_id,type,name',
+                'sucursal:id,negocio_id,type,name,monto_maximo_efectivo',
                 'role:id,negocio_id,name,permissions,status',
                 'empleado:id,negocio_id,first_name,paternal_surname,maternal_surname,employee_number,status',
             ]);

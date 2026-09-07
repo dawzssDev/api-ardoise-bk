@@ -589,6 +589,46 @@ class TurnoCajaTest extends TestCase
             ->assertJsonPath('data.caja.turno.status', TurnoCaja::STATUS_ABIERTO);
     }
 
+    public function test_monto_maximo_efectivo_does_not_block_sales(): void
+    {
+        [$user, $negocio, $sucursal, $producto, $staff] = $this->seedCajaContext();
+        $sucursal->update(['monto_maximo_efectivo' => 100]);
+
+        Sanctum::actingAs($staff);
+
+        $this->postJson('/api/turnos-caja/abrir', ['fondo_inicial' => 80])
+            ->assertCreated()
+            ->assertJsonPath('data.turno.monto_maximo_efectivo', '100.00')
+            ->assertJsonPath('data.turno.efectivo_en_caja', '80.00')
+            ->assertJsonPath('data.turno.excede_monto_maximo_efectivo', false)
+            ->assertJsonPath('data.turno.sucursal.monto_maximo_efectivo', '100.00');
+
+        $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Mesa 1',
+            'tipo_pago' => 'efectivo',
+            'detalles' => [['producto_id' => $producto->id, 'cantidad' => 1, 'precio' => 50]],
+        ])->assertCreated();
+
+        $this->getJson('/api/auth/me')
+            ->assertOk()
+            ->assertJsonPath('data.staff.sucursal.monto_maximo_efectivo', '100.00')
+            ->assertJsonPath('data.caja.turno.efectivo_en_caja', '130.00')
+            ->assertJsonPath('data.caja.turno.excede_monto_maximo_efectivo', true);
+
+        $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Mesa 2',
+            'tipo_pago' => 'efectivo',
+            'detalles' => [['producto_id' => $producto->id, 'cantidad' => 1, 'precio' => 50]],
+        ])
+            ->assertCreated()
+            ->assertJsonPath('success', true);
+
+        $this->getJson('/api/auth/me')
+            ->assertOk()
+            ->assertJsonPath('data.caja.turno.efectivo_en_caja', '180.00')
+            ->assertJsonPath('data.caja.turno.excede_monto_maximo_efectivo', true);
+    }
+
     public function test_staff_without_corte_caja_cannot_close_turno(): void
     {
         [$user, $negocio, $sucursal, $producto, $staff] = $this->seedCajaContext();

@@ -349,6 +349,7 @@ CREATE TABLE `sucursales` (
   `state` varchar(255) NULL DEFAULT NULL,
   `postal_code` varchar(20) NULL DEFAULT NULL,
   `opened_year` smallint UNSIGNED NULL DEFAULT NULL,
+  `monto_maximo_efectivo` decimal(12,2) NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -1660,6 +1661,16 @@ ALTER TABLE `negocios`
 
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_09_07_130000_add_comision_venta_tarjeta_to_negocios_table', 1);
+
+================================================================================
+ALTER sucursales — monto_maximo_efectivo (nullable; no bloquea ventas)
+================================================================================
+-- Solo si `sucursales` ya existe SIN esta columna:
+ALTER TABLE `sucursales`
+  ADD COLUMN `monto_maximo_efectivo` decimal(12,2) NULL DEFAULT NULL AFTER `opened_year`;
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_09_07_140000_add_monto_maximo_efectivo_to_sucursales_table', 1);
 
 ================================================================================
 FIN

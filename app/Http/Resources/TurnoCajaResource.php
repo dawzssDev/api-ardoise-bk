@@ -2,11 +2,14 @@
 
 namespace App\Http\Resources;
 
+use App\Services\TurnoCajaService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 class TurnoCajaResource extends JsonResource
 {
+    private ?float $efectivoEnCajaCache = null;
+
     /**
      * @return array<string, mixed>
      */
@@ -33,6 +36,12 @@ class TurnoCajaResource extends JsonResource
                 'id' => $this->sucursal->id,
                 'type' => $this->sucursal->type,
                 'name' => $this->sucursal->name,
+                'monto_maximo_efectivo' => $this->sucursal->monto_maximo_efectivo !== null
+                    ? (string) $this->sucursal->monto_maximo_efectivo
+                    : null,
+                'montoMaximoEfectivo' => $this->sucursal->monto_maximo_efectivo !== null
+                    ? (string) $this->sucursal->monto_maximo_efectivo
+                    : null,
             ] : null),
             'fondo_inicial' => (string) $this->fondo_inicial,
             'total_ventas_efectivo' => (string) $this->total_ventas_efectivo,
@@ -72,6 +81,12 @@ class TurnoCajaResource extends JsonResource
             'fecha_cierre' => $this->fecha_cierre?->toIso8601String(),
             'fecha_cierre_cajera' => $this->fecha_cierre_cajera?->toIso8601String(),
             'observaciones_cierre' => $this->observaciones_cierre,
+            'monto_maximo_efectivo' => $this->montoMaximoEfectivoFormatted(),
+            'montoMaximoEfectivo' => $this->montoMaximoEfectivoFormatted(),
+            'efectivo_en_caja' => number_format($this->efectivoEnCaja(), 2, '.', ''),
+            'efectivoEnCaja' => number_format($this->efectivoEnCaja(), 2, '.', ''),
+            'excede_monto_maximo_efectivo' => $this->excedeMontoMaximoEfectivo(),
+            'excedeMontoMaximoEfectivo' => $this->excedeMontoMaximoEfectivo(),
             'cortes' => $this->whenLoaded(
                 'cortes',
                 fn () => TurnoCajaCorteResource::collection($this->cortes)->resolve(),
@@ -79,5 +94,40 @@ class TurnoCajaResource extends JsonResource
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
         ];
+    }
+
+    private function montoMaximoEfectivoFormatted(): ?string
+    {
+        $maximo = $this->sucursalMaximoEfectivo();
+
+        return $maximo !== null ? number_format($maximo, 2, '.', '') : null;
+    }
+
+    private function sucursalMaximoEfectivo(): ?float
+    {
+        if (! $this->relationLoaded('sucursal') || ! $this->sucursal) {
+            return null;
+        }
+
+        return $this->sucursal->montoMaximoEfectivo();
+    }
+
+    private function efectivoEnCaja(): float
+    {
+        if ($this->efectivoEnCajaCache === null) {
+            $this->efectivoEnCajaCache = app(TurnoCajaService::class)
+                ->efectivoDisponibleParaGasto($this->resource);
+        }
+
+        return $this->efectivoEnCajaCache;
+    }
+
+    private function excedeMontoMaximoEfectivo(): bool
+    {
+        if (! $this->relationLoaded('sucursal') || ! $this->sucursal) {
+            return false;
+        }
+
+        return $this->sucursal->excedeMontoMaximoEfectivo($this->efectivoEnCaja());
     }
 }

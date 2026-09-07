@@ -24,6 +24,12 @@ class SucursalResource extends JsonResource
             'state' => $this->state,
             'postal_code' => $this->postal_code,
             'opened_year' => $this->opened_year,
+            'monto_maximo_efectivo' => $this->monto_maximo_efectivo !== null
+                ? (string) $this->monto_maximo_efectivo
+                : null,
+            'montoMaximoEfectivo' => $this->monto_maximo_efectivo !== null
+                ? (string) $this->monto_maximo_efectivo
+                : null,
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
         ];

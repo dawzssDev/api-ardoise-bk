@@ -13,6 +13,38 @@ class CreateSucursalRequest extends FormRequest
         return true;
     }
 
+    protected function prepareForValidation(): void
+    {
+        $aliases = [
+            'monto_maximo_efectivo' => [
+                'montoMaximoEfectivo',
+                'maximo_efectivo',
+                'maximoEfectivo',
+                'monto_maximo_caja',
+                'montoMaximoCaja',
+            ],
+        ];
+
+        $merge = [];
+
+        foreach ($aliases as $field => $keys) {
+            if ($this->exists($field)) {
+                continue;
+            }
+
+            foreach ($keys as $alias) {
+                if ($this->exists($alias)) {
+                    $merge[$field] = $this->input($alias);
+                    break;
+                }
+            }
+        }
+
+        if ($merge !== []) {
+            $this->merge($merge);
+        }
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -28,6 +60,7 @@ class CreateSucursalRequest extends FormRequest
             'state' => ['nullable', 'string', 'max:100'],
             'postal_code' => ['nullable', 'string', 'max:20'],
             'opened_year' => ['nullable', 'integer', 'min:1900', 'max:'.((int) date('Y') + 1)],
+            'monto_maximo_efectivo' => ['sometimes', 'nullable', 'numeric', 'min:0'],
         ];
     }
 
@@ -45,6 +78,8 @@ class CreateSucursalRequest extends FormRequest
             'opened_year.integer' => 'El año de apertura debe ser un número.',
             'opened_year.min' => 'El año de apertura no es válido.',
             'opened_year.max' => 'El año de apertura no es válido.',
+            'monto_maximo_efectivo.numeric' => 'El monto máximo de efectivo debe ser un número.',
+            'monto_maximo_efectivo.min' => 'El monto máximo de efectivo no puede ser negativo.',
         ];
     }
 }

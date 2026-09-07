@@ -22,6 +22,12 @@ class StaffResource extends JsonResource
                 'id' => $this->sucursal->id,
                 'type' => $this->sucursal->type,
                 'name' => $this->sucursal->name,
+                'monto_maximo_efectivo' => $this->sucursal->monto_maximo_efectivo !== null
+                    ? (string) $this->sucursal->monto_maximo_efectivo
+                    : null,
+                'montoMaximoEfectivo' => $this->sucursal->monto_maximo_efectivo !== null
+                    ? (string) $this->sucursal->monto_maximo_efectivo
+                    : null,
             ] : null),
             'role_id' => $this->role_id,
             'role' => $this->whenLoaded('role', fn () => $this->role ? [
