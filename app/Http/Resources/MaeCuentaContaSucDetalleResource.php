@@ -32,6 +32,11 @@ class MaeCuentaContaSucDetalleResource extends JsonResource
             'tipoMovimiento' => $this->tipo_movimiento,
             'tipo_solicitud' => $this->tipoSolicitudLabel(),
             'tipoSolicitud' => $this->tipoSolicitudLabel(),
+            'sentido' => $this->sentido(),
+            'es_salida' => $this->sentido() === 'salida',
+            'esSalida' => $this->sentido() === 'salida',
+            'es_entrada' => $this->sentido() === 'entrada',
+            'esEntrada' => $this->sentido() === 'entrada',
             'cuenta_origen_id' => $this->cuenta_origen_id,
             'cuentaOrigen' => $this->cuenta_origen_id,
             'cuenta_origen' => $this->whenLoaded('cuentaOrigen', fn () => $this->cuentaSnippet($this->cuentaOrigen)),
@@ -90,7 +95,33 @@ class MaeCuentaContaSucDetalleResource extends JsonResource
             MaeCuentaContaSucDetalle::TIPO_TRANSFERENCIA => 'transferencia',
             MaeCuentaContaSucDetalle::TIPO_VENTA_EFECTIVO => 'venta_efectivo',
             MaeCuentaContaSucDetalle::TIPO_VENTA_TARJETA => 'venta_tarjeta',
+            MaeCuentaContaSucDetalle::TIPO_GASTO,
+            MaeCuentaContaSucDetalle::TIPO_GASTO_OPERATIVO,
+            MaeCuentaContaSucDetalle::TIPO_PAGO_PROVEEDOR,
+            MaeCuentaContaSucDetalle::TIPO_RETIRO_EFECTIVO => 'gasto',
             default => 'deposito',
         };
+    }
+
+    /**
+     * Dirección del movimiento respecto a la cuenta del detalle.
+     * gasto / retiro / origen de un traspaso → salida.
+     * deposito / venta / destino de un traspaso → entrada.
+     */
+    private function sentido(): string
+    {
+        if (MaeCuentaContaSucDetalle::isTipoGasto((string) $this->tipo_movimiento)) {
+            return 'salida';
+        }
+
+        $cuentaId = (int) $this->mae_cuenta_conta_suc_id;
+        $origenId = (int) $this->cuenta_origen_id;
+        $destinoId = (int) $this->cuenta_destino_id;
+
+        if ($origenId > 0 && $origenId === $cuentaId && $origenId !== $destinoId) {
+            return 'salida';
+        }
+
+        return 'entrada';
     }
 }

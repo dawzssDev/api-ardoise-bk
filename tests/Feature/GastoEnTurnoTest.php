@@ -3,9 +3,13 @@
 namespace Tests\Feature;
 
 use App\Models\GastoEnTurno;
+use App\Models\Negocio;
 use App\Models\Proveedor;
 use App\Models\Role;
+use App\Models\Staff;
 use App\Models\Sucursal;
+use App\Models\TurnoCaja;
+use App\Models\TurnoCajaCorte;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -157,6 +161,10 @@ class GastoEnTurnoTest extends TestCase
     public function test_cannot_register_gasto_on_closed_turno(): void
     {
         [$user, $negocio, $sucursal, $staff] = $this->seedCajaContext();
+        $this->setStaffPermissions($staff, [
+            'corteCaja' => false,
+            'corteCajaCajera' => true,
+        ]);
 
         Sanctum::actingAs($staff);
 
@@ -175,6 +183,156 @@ class GastoEnTurnoTest extends TestCase
         ])
             ->assertStatus(422)
             ->assertJsonPath('message', 'No puedes registrar gastos en un turno cerrado.');
+    }
+
+    public function test_encargado_and_gerencia_can_register_gastos_after_cajera_closed(): void
+    {
+        [$user, $negocio, $sucursal, $cajera] = $this->seedCajaContext();
+        $this->setStaffPermissions($cajera, [
+            'corteCaja' => false,
+            'corteCajaCajera' => true,
+        ]);
+
+        $encargado = $this->createStaffWithPermissions(
+            $user,
+            $negocio,
+            $sucursal,
+            'Encargado sucursal',
+            'maria.encargada',
+            'EMP-ENC',
+            ['corteCaja' => true],
+        );
+        $gerente = $this->createStaffWithPermissions(
+            $user,
+            $negocio,
+            $sucursal,
+            'Gerente administrativo',
+            'luis.gerencia',
+            'EMP-GER-G',
+            ['corteCajaGerenteAdmo' => true],
+        );
+
+        Sanctum::actingAs($cajera);
+        $turnoId = $this->postJson('/api/turnos-caja/abrir', [
+            'fondo_inicial' => 200,
+        ])->assertCreated()->json('data.turno.id');
+
+        $this->postJson("/api/turnos-caja/{$turnoId}/cerrar", [
+            'efectivo_real' => 200,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.turno.status', TurnoCaja::STATUS_CERRADO)
+            ->assertJsonPath('data.turno.status_administrador', TurnoCaja::STATUS_ABIERTO)
+            ->assertJsonPath('data.turno.status_gerencia', TurnoCaja::STATUS_ABIERTO);
+
+        Sanctum::actingAs($encargado);
+        $this->postJson("/api/turnos-caja/{$turnoId}/gastos", [
+            'tipo' => 'Gasto operativo',
+            'descripcion' => 'Compra de servilletas',
+            'monto' => 50,
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.gasto.descripcion', 'Compra de servilletas')
+            ->assertJsonPath('data.gasto.monto', '50.00')
+            ->assertJsonPath('data.turno.total_gastos_operativos', '50.00');
+
+        $this->assertDatabaseHas('tb_turnos_cajas_cortes', [
+            'turno_caja_id' => $turnoId,
+            'tipo_corte' => TurnoCajaCorte::TIPO_CIERRE,
+            'total_gastos_operativos' => 50,
+        ]);
+
+        Sanctum::actingAs($gerente);
+        $this->postJson("/api/turnos-caja/{$turnoId}/gastos", [
+            'tipo' => 'Gasto operativo',
+            'descripcion' => 'Gasto gerencia',
+            'monto' => 20,
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.turno.total_gastos_operativos', '70.00');
+
+        Sanctum::actingAs($user);
+        $this->postJson("/api/turnos-caja/{$turnoId}/gastos", [
+            'tipo' => 'Retiro de efectivo',
+            'descripcion' => 'Gasto dueño en validación',
+            'monto' => 10,
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.turno.total_retiros_efectivo', '10.00');
+    }
+
+    public function test_encargado_cannot_register_gasto_after_status_administrador_closed(): void
+    {
+        [$user, $negocio, $sucursal, $cajera] = $this->seedCajaContext();
+        $this->setStaffPermissions($cajera, [
+            'corteCaja' => false,
+            'corteCajaCajera' => true,
+        ]);
+
+        $encargado = $this->createStaffWithPermissions(
+            $user,
+            $negocio,
+            $sucursal,
+            'Encargado sucursal',
+            'pedro.encargado',
+            'EMP-ENC-2',
+            ['corteCaja' => true],
+        );
+        $gerente = $this->createStaffWithPermissions(
+            $user,
+            $negocio,
+            $sucursal,
+            'Gerente administrativo',
+            'sofia.gerencia',
+            'EMP-GER-2',
+            ['corteCajaGerenteAdmo' => true],
+        );
+
+        Sanctum::actingAs($cajera);
+        $turnoId = $this->postJson('/api/turnos-caja/abrir', [
+            'fondo_inicial' => 150,
+        ])->assertCreated()->json('data.turno.id');
+        $this->postJson("/api/turnos-caja/{$turnoId}/cerrar", [
+            'efectivo_real' => 150,
+        ])->assertOk();
+
+        Sanctum::actingAs($encargado);
+        $this->postJson("/api/turnos-caja/{$turnoId}/cerrar", [
+            'efectivo_real' => 150,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.turno.status_administrador', TurnoCaja::STATUS_CERRADO)
+            ->assertJsonPath('data.turno.status_gerencia', TurnoCaja::STATUS_ABIERTO);
+
+        $this->postJson("/api/turnos-caja/{$turnoId}/gastos", [
+            'tipo' => 'Gasto operativo',
+            'descripcion' => 'Encargado ya cerró',
+            'monto' => 10,
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'No puedes registrar gastos. El corte del encargado de sucursal ya está cerrado.');
+
+        Sanctum::actingAs($gerente);
+        $this->postJson("/api/turnos-caja/{$turnoId}/gastos", [
+            'tipo' => 'Gasto operativo',
+            'descripcion' => 'Gerencia aún abierta',
+            'monto' => 15,
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.gasto.monto', '15.00')
+            ->assertJsonPath('data.turno.total_gastos_operativos', '15.00');
+
+        TurnoCaja::query()->whereKey($turnoId)->update([
+            'status_gerencia' => TurnoCaja::STATUS_CERRADO,
+        ]);
+
+        $this->postJson("/api/turnos-caja/{$turnoId}/gastos", [
+            'tipo' => 'Gasto operativo',
+            'descripcion' => 'Gerencia ya cerró',
+            'monto' => 5,
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'No puedes registrar gastos. La validación gerencial ya está cerrada.');
     }
 
     public function test_staff_cannot_register_gasto_on_another_cajera_turno(): void
@@ -370,7 +528,7 @@ class GastoEnTurnoTest extends TestCase
     }
 
     /**
-     * @return array{0: User, 1: \App\Models\Negocio, 2: Sucursal, 3: \App\Models\Staff}
+     * @return array{0: User, 1: Negocio, 2: Sucursal, 3: Staff}
      */
     private function seedCajaContext(): array
     {
@@ -423,12 +581,74 @@ class GastoEnTurnoTest extends TestCase
         return [$user, $negocio, $sucursal, $staff];
     }
 
-    private function createProveedor(User $user, \App\Models\Negocio $negocio): Proveedor
+    private function createProveedor(User $user, Negocio $negocio): Proveedor
     {
         return $negocio->proveedores()->create([
             'name' => 'Distribuidora Norte',
             'status' => Proveedor::STATUS_ACTIVO,
             'created_by' => $user->id,
+        ]);
+    }
+
+    /**
+     * @param  array<string, bool>  $overrides
+     */
+    private function setStaffPermissions(Staff $staff, array $overrides): void
+    {
+        $staff->loadMissing('role');
+        $permissions = Role::defaultPermissions();
+        foreach ($overrides as $key => $value) {
+            $permissions[$key] = $value;
+        }
+        $staff->role->update(['permissions' => $permissions]);
+        $staff->unsetRelation('role');
+    }
+
+    /**
+     * @param  array<string, bool>  $permissionOverrides
+     */
+    private function createStaffWithPermissions(
+        User $user,
+        Negocio $negocio,
+        Sucursal $sucursal,
+        string $roleName,
+        string $username,
+        string $employeeNumber,
+        array $permissionOverrides,
+    ): Staff {
+        $permissions = Role::defaultPermissions();
+        foreach ($permissionOverrides as $key => $value) {
+            $permissions[$key] = $value;
+        }
+
+        $role = $negocio->roles()->create([
+            'name' => $roleName,
+            'permissions' => $permissions,
+            'status' => true,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        $empleado = $negocio->empleados()->create([
+            'sucursal_id' => $sucursal->id,
+            'role_id' => $role->id,
+            'first_name' => $roleName,
+            'paternal_surname' => 'Test',
+            'employee_number' => $employeeNumber,
+            'status' => 'activo',
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        return $negocio->staff()->create([
+            'username' => $username,
+            'password' => 'secreto123',
+            'sucursal_id' => $sucursal->id,
+            'role_id' => $role->id,
+            'empleado_id' => $empleado->id,
+            'status' => true,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
         ]);
     }
 }

@@ -18,7 +18,7 @@ class UpdateMaeCuentaContaSucDetalleRequest extends FormRequest
         $merge = [];
 
         if (! $this->exists('tipo_movimiento')) {
-            foreach (['tipoMovimiento', 'tipo'] as $alias) {
+            foreach (['tipo_gasto', 'tipoGasto', 'tipoMovimiento', 'tipo'] as $alias) {
                 if ($this->exists($alias)) {
                     $merge['tipo_movimiento'] = $this->input($alias);
                     break;
@@ -124,7 +124,7 @@ class UpdateMaeCuentaContaSucDetalleRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'tipo_movimiento.in' => 'El tipo de movimiento debe ser deposito, transferencia, retiro, venta_efectivo o venta_tarjeta.',
+            'tipo_movimiento.in' => 'El tipo de movimiento debe ser deposito, transferencia, retiro, gasto, gasto_operativo, pago_proveedor, retiro_efectivo, venta_efectivo o venta_tarjeta.',
             'descripcion_movimiento.required' => 'La descripción del movimiento es obligatoria.',
             'descripcion_movimiento.max' => 'La descripción no puede superar :max caracteres.',
             'monto_movimiento.gt' => 'El monto del movimiento debe ser mayor a cero.',

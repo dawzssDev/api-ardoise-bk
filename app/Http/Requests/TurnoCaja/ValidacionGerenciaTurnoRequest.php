@@ -16,7 +16,7 @@ class ValidacionGerenciaTurnoRequest extends FormRequest
         $merge = [];
 
         if (! $this->exists('efectivo_gerencia')) {
-            foreach (['efectivoGerencia', 'efectivo_gerencial'] as $alias) {
+            foreach (['efectivoGerencia', 'efectivo_gerencial', 'efectivo_contado', 'efectivoContado'] as $alias) {
                 if ($this->exists($alias)) {
                     $merge['efectivo_gerencia'] = $this->input($alias);
                     break;
@@ -25,7 +25,7 @@ class ValidacionGerenciaTurnoRequest extends FormRequest
         }
 
         if (! $this->exists('terminal_gerencia')) {
-            foreach (['terminalGerencia', 'terminal_gerencial'] as $alias) {
+            foreach (['terminalGerencia', 'terminal_gerencial', 'corte_tarjeta', 'corteTarjeta'] as $alias) {
                 if ($this->exists($alias)) {
                     $merge['terminal_gerencia'] = $this->input($alias);
                     break;
@@ -45,6 +45,14 @@ class ValidacionGerenciaTurnoRequest extends FormRequest
                     break;
                 }
             }
+        }
+
+        $sobrante = $this->exists('sobrante') ? (float) $this->input('sobrante') : 0;
+        $faltante = $this->exists('faltante') ? (float) $this->input('faltante') : 0;
+        if ($sobrante > 0) {
+            $merge['diferencia_gerencia'] = abs($sobrante);
+        } elseif ($faltante > 0) {
+            $merge['diferencia_gerencia'] = -abs($faltante);
         }
 
         if (! $this->exists('date_validation_gerencia')) {

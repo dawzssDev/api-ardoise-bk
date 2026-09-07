@@ -39,12 +39,37 @@ class MaeCuentaContaSucDetalleService
 
         $tipo = $this->resolvedTipoMovimiento($data['tipo_movimiento'] ?? null);
         $monto = $this->resolvedMonto($data['monto_movimiento'] ?? null);
+
+        $origenId = (int) ($data['cuenta_origen_id'] ?? $cuenta->id);
+        $destinoId = (int) ($data['cuenta_destino_id'] ?? 0);
+        $destinoEfectivo = $destinoId > 0 ? $destinoId : (int) $cuenta->id;
+        $esGastoDirecto = MaeCuentaContaSucDetalle::isTipoGasto($tipo)
+            || (
+                $origenId > 0
+                && $origenId === $destinoEfectivo
+                && ! in_array($tipo, [
+                    MaeCuentaContaSucDetalle::TIPO_DEPOSITO,
+                    ...MaeCuentaContaSucDetalle::TIPOS_VENTA_CORTE,
+                ], true)
+            );
+
+        if ($esGastoDirecto) {
+            $tipoGasto = MaeCuentaContaSucDetalle::isTipoGasto($tipo)
+                ? $tipo
+                : ($tipo === MaeCuentaContaSucDetalle::TIPO_RETIRO
+                    ? MaeCuentaContaSucDetalle::TIPO_RETIRO_EFECTIVO
+                    : MaeCuentaContaSucDetalle::TIPO_GASTO_OPERATIVO);
+
+            return $this->crearGastoDirecto($cuenta, $actor, $tipoGasto, $monto, $data);
+        }
+
         [$origenId, $destinoId] = $this->resolvedCuentasMovimiento(
             $cuenta,
             $tipo,
             $data['cuenta_origen_id'] ?? null,
             $data['cuenta_destino_id'] ?? null,
         );
+
         $auditId = $this->auditUserId($actor, $cuenta->negocio);
 
         return DB::transaction(function () use ($cuenta, $tipo, $monto, $origenId, $destinoId, $data, $auditId) {
@@ -192,6 +217,226 @@ class MaeCuentaContaSucDetalleService
         });
     }
 
+    /**
+     * Sobrante de gerencia (diferencia_gerencia > 0): entrada a cuenta maestra
+     * con origen en la cuenta de la sucursal del corte.
+     */
+    public function registrarSobranteCorteGerencia(TurnoCaja $turno, User|Staff $actor): ?MaeCuentaContaSucDetalle
+    {
+        $sobrante = round((float) ($turno->diferencia_gerencia ?? 0), 2);
+        if ($sobrante <= 0) {
+            return null;
+        }
+
+        $turno->loadMissing('sucursal:id,name');
+        $sucursalNombre = trim((string) ($turno->sucursal?->name ?? 'SUCURSAL'));
+        $descripcion = $this->descripcionSobranteCorteGerencia($turno);
+
+        $maestra = MaeCuentaContaSuc::query()
+            ->where('negocio_id', $turno->negocio_id)
+            ->where('tipo_cuenta', MaeCuentaContaSuc::TIPO_MAESTRA)
+            ->where('deleted', MaeCuentaContaSuc::DELETED_NO)
+            ->where('status', MaeCuentaContaSuc::STATUS_ACTIVO)
+            ->orderBy('id')
+            ->first();
+
+        if (! $maestra) {
+            throw new HttpException(422, 'No hay cuenta maestra activa para registrar el sobrante del corte.');
+        }
+
+        $subcuenta = MaeCuentaContaSuc::query()
+            ->where('negocio_id', $turno->negocio_id)
+            ->where('tipo_cuenta', MaeCuentaContaSuc::TIPO_SUBCUENTA)
+            ->where('sucursal_id', $turno->sucursal_id)
+            ->where('deleted', MaeCuentaContaSuc::DELETED_NO)
+            ->where('status', MaeCuentaContaSuc::STATUS_ACTIVO)
+            ->orderBy('id')
+            ->first();
+
+        if (! $subcuenta) {
+            throw new HttpException(
+                422,
+                'No hay cuenta contable de sucursal activa para registrar el origen del sobrante.',
+            );
+        }
+
+        $auditId = $this->auditUserId($actor, $turno->negocio);
+        $desde = $turno->fecha_apertura ?? $turno->created_at ?? now()->subDay();
+
+        return DB::transaction(function () use ($maestra, $subcuenta, $sobrante, $descripcion, $sucursalNombre, $auditId, $desde) {
+            $existente = MaeCuentaContaSucDetalle::query()
+                ->where('negocio_id', $maestra->negocio_id)
+                ->where('mae_cuenta_conta_suc_id', $maestra->id)
+                ->where('cuenta_origen_id', $subcuenta->id)
+                ->where('cuenta_destino_id', $maestra->id)
+                ->where(function ($query) use ($descripcion, $sucursalNombre) {
+                    $query->where('descripcion_movimiento', $descripcion)
+                        ->orWhere('descripcion_movimiento', 'SOBRANTE del CORTE de '.$sucursalNombre);
+                })
+                ->where('deleted', MaeCuentaContaSucDetalle::DELETED_NO)
+                ->where('created_at', '>=', $desde)
+                ->lockForUpdate()
+                ->latest('id')
+                ->first();
+
+            $destino = $this->lockCuenta($maestra->id);
+            $monto = number_format($sobrante, 2, '.', '');
+
+            if ($existente) {
+                $actual = round((float) $existente->monto_movimiento, 2);
+                $delta = round($sobrante - $actual, 2);
+                if (abs($delta) <= 0.009) {
+                    if ($existente->descripcion_movimiento !== $descripcion) {
+                        $existente->descripcion_movimiento = $descripcion;
+                        $existente->updated_by = $auditId;
+                        $existente->save();
+                    }
+
+                    return $existente->refresh()->load($this->detalleRelations());
+                }
+
+                if ($delta > 0) {
+                    $this->credit($destino, number_format($delta, 2, '.', ''));
+                } else {
+                    $this->debit($destino, number_format(abs($delta), 2, '.', ''));
+                }
+
+                $existente->monto_movimiento = $monto;
+                $existente->descripcion_movimiento = $descripcion;
+                $existente->updated_by = $auditId;
+                $existente->save();
+
+                return $existente->refresh()->load($this->detalleRelations());
+            }
+
+            $this->credit($destino, $monto);
+
+            return $maestra->detalles()->create([
+                'negocio_id' => $maestra->negocio_id,
+                'tipo_movimiento' => MaeCuentaContaSucDetalle::TIPO_DEPOSITO,
+                'cuenta_origen_id' => $subcuenta->id,
+                'monto_movimiento' => $monto,
+                'cuenta_destino_id' => $maestra->id,
+                'descripcion_movimiento' => $descripcion,
+                'status' => MaeCuentaContaSucDetalle::STATUS_ACEPTADO,
+                'deleted' => MaeCuentaContaSucDetalle::DELETED_NO,
+                'created_by' => $auditId,
+                'updated_by' => $auditId,
+            ])->refresh()->load($this->detalleRelations());
+        });
+    }
+
+    /**
+     * Al cerrar el corte del administrador: descuenta de la cuenta de sucursal
+     * los gastos registrados en el turno.
+     *
+     * @return list<MaeCuentaContaSucDetalle>
+     */
+    public function registrarGastosCorteSucursal(TurnoCaja $turno, User|Staff $actor): array
+    {
+        $turno->loadMissing('sucursal:id,name');
+
+        $lineas = [
+            [
+                'tipo' => MaeCuentaContaSucDetalle::TIPO_PAGO_PROVEEDOR,
+                'monto' => round((float) $turno->total_pagos_proveedores, 2),
+                'label' => 'pagos a proveedores',
+            ],
+            [
+                'tipo' => MaeCuentaContaSucDetalle::TIPO_GASTO_OPERATIVO,
+                'monto' => round((float) $turno->total_gastos_operativos, 2),
+                'label' => 'gastos operativos',
+            ],
+            [
+                'tipo' => MaeCuentaContaSucDetalle::TIPO_RETIRO_EFECTIVO,
+                'monto' => round((float) $turno->total_retiros_efectivo, 2),
+                'label' => 'retiros de efectivo',
+            ],
+        ];
+
+        $total = round(array_sum(array_column($lineas, 'monto')), 2);
+        if ($total <= 0) {
+            return [];
+        }
+
+        $subcuenta = MaeCuentaContaSuc::query()
+            ->where('negocio_id', $turno->negocio_id)
+            ->where('tipo_cuenta', MaeCuentaContaSuc::TIPO_SUBCUENTA)
+            ->where('sucursal_id', $turno->sucursal_id)
+            ->where('deleted', MaeCuentaContaSuc::DELETED_NO)
+            ->where('status', MaeCuentaContaSuc::STATUS_ACTIVO)
+            ->orderBy('id')
+            ->first();
+
+        if (! $subcuenta) {
+            return [];
+        }
+
+        $descripcionBase = $this->descripcionCorteGerencia($turno);
+        $auditId = $this->auditUserId($actor, $turno->negocio);
+        $creados = [];
+
+        return DB::transaction(function () use ($subcuenta, $lineas, $descripcionBase, $auditId, $creados) {
+            $cuenta = $this->lockCuenta($subcuenta->id);
+
+            foreach ($lineas as $linea) {
+                if ($linea['monto'] <= 0) {
+                    continue;
+                }
+
+                $monto = number_format($linea['monto'], 2, '.', '');
+                $this->debit($cuenta, $monto);
+                $cuenta->refresh();
+
+                $creados[] = $cuenta->detalles()->create([
+                    'negocio_id' => $cuenta->negocio_id,
+                    'tipo_movimiento' => $linea['tipo'],
+                    'cuenta_origen_id' => $cuenta->id,
+                    'monto_movimiento' => $monto,
+                    'cuenta_destino_id' => null,
+                    'descripcion_movimiento' => "{$descripcionBase} ({$linea['label']})",
+                    'status' => MaeCuentaContaSucDetalle::STATUS_ACEPTADO,
+                    'deleted' => MaeCuentaContaSucDetalle::DELETED_NO,
+                    'created_by' => $auditId,
+                    'updated_by' => $auditId,
+                ]);
+            }
+
+            return $creados;
+        });
+    }
+
+    /**
+     * @param  array{descripcion_movimiento?: string}  $data
+     */
+    private function crearGastoDirecto(
+        MaeCuentaContaSuc $cuenta,
+        User|Staff $actor,
+        string $tipo,
+        string $monto,
+        array $data,
+    ): MaeCuentaContaSucDetalle {
+        $auditId = $this->auditUserId($actor, $cuenta->negocio);
+
+        return DB::transaction(function () use ($cuenta, $tipo, $monto, $data, $auditId) {
+            $cuentaLocked = $this->lockCuenta($cuenta->id);
+            $this->debit($cuentaLocked, $monto);
+
+            return $cuentaLocked->detalles()->create([
+                'negocio_id' => $cuentaLocked->negocio_id,
+                'tipo_movimiento' => $tipo,
+                'cuenta_origen_id' => $cuentaLocked->id,
+                'monto_movimiento' => $monto,
+                'cuenta_destino_id' => null,
+                'descripcion_movimiento' => trim((string) $data['descripcion_movimiento']),
+                'status' => MaeCuentaContaSucDetalle::STATUS_ACEPTADO,
+                'deleted' => MaeCuentaContaSucDetalle::DELETED_NO,
+                'created_by' => $auditId,
+                'updated_by' => $auditId,
+            ])->refresh()->load($this->detalleRelations());
+        });
+    }
+
     private function descripcionCorteGerencia(TurnoCaja $turno): string
     {
         $fecha = $turno->fecha_cierre
@@ -203,6 +448,19 @@ class MaeCuentaContaSucDetalleService
         $sucursal = trim((string) ($turno->sucursal?->name ?? 'SUCURSAL'));
 
         return "CORTE del {$fechaTxt} de {$sucursal}";
+    }
+
+    private function descripcionSobranteCorteGerencia(TurnoCaja $turno): string
+    {
+        $fecha = $turno->fecha_cierre
+            ?? $turno->fecha_cierre_cajera
+            ?? $turno->fecha_apertura
+            ?? now();
+
+        $fechaTxt = $fecha->timezone(config('app.timezone'))->format('d/m/Y');
+        $sucursal = trim((string) ($turno->sucursal?->name ?? 'SUCURSAL'));
+
+        return "SOBRANTE del CORTE del {$fechaTxt} de {$sucursal}";
     }
 
     public function listForNegocio(
@@ -407,6 +665,8 @@ class MaeCuentaContaSucDetalleService
             $detalle->updated_by = $this->auditUserId($actor, $detalle->negocio);
             $detalle->save();
 
+            $this->registrarMovimientoAceptadoEnTurno($detalle->refresh(), $actor);
+
             return $detalle->refresh()->load($this->detalleRelations());
         });
     }
@@ -520,7 +780,7 @@ class MaeCuentaContaSucDetalleService
     {
         $normalized = MaeCuentaContaSucDetalle::normalizeTipoMovimiento($tipo);
         if ($normalized === null) {
-            throw new HttpException(422, 'El tipo de movimiento debe ser deposito, transferencia, retiro, venta_efectivo o venta_tarjeta.');
+            throw new HttpException(422, 'El tipo de movimiento debe ser deposito, transferencia, retiro, gasto, gasto_operativo, pago_proveedor, retiro_efectivo, venta_efectivo o venta_tarjeta.');
         }
 
         return $normalized;
@@ -606,6 +866,37 @@ class MaeCuentaContaSucDetalleService
         $valor = round((float) $monto, 2);
         $cuenta->saldo = number_format($saldo - $valor, 2, '.', '');
         $cuenta->save();
+    }
+
+    /**
+     * Al aceptar depósito (matriz → sucursal) o retiro (sucursal → matriz),
+     * replica el movimiento en el turno pendiente de validación de esa sucursal.
+     */
+    private function registrarMovimientoAceptadoEnTurno(
+        MaeCuentaContaSucDetalle $detalle,
+        User|Staff $actor,
+    ): void {
+        $detalle->loadMissing(['cuentaDestino', 'cuentaOrigen']);
+        $cuentaSucursal = $detalle->isRetiro() ? $detalle->cuentaOrigen : $detalle->cuentaDestino;
+        $sucursalId = (int) ($cuentaSucursal?->sucursal_id ?? 0);
+        if ($sucursalId < 1) {
+            return;
+        }
+
+        /** @var TurnoCajaService $turnos */
+        $turnos = app(TurnoCajaService::class);
+        $turno = $turnos->turnoPendienteDeValidacion((int) $detalle->negocio_id, $sucursalId);
+        if (! $turno) {
+            return;
+        }
+
+        $turnos->registrarMovimientoContableAceptado(
+            $turno,
+            $actor,
+            $detalle->isRetiro(),
+            (string) $detalle->descripcion_movimiento,
+            (float) $detalle->monto_movimiento,
+        );
     }
 
     private function credit(MaeCuentaContaSuc $cuenta, string $monto): void

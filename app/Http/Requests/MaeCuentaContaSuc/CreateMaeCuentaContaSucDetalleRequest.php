@@ -26,7 +26,19 @@ class CreateMaeCuentaContaSucDetalleRequest extends FormRequest
             }
         }
 
-        if (! $this->exists('tipo_movimiento')) {
+        foreach (['tipo_gasto', 'tipoGasto', 'tipo', 'tipo_movimiento', 'tipoMovimiento'] as $alias) {
+            if (! $this->exists($alias)) {
+                continue;
+            }
+
+            $normalizedGasto = MaeCuentaContaSucDetalle::normalizeTipoMovimiento($this->input($alias));
+            if ($normalizedGasto !== null && MaeCuentaContaSucDetalle::isTipoGasto($normalizedGasto)) {
+                $merge['tipo_movimiento'] = $normalizedGasto;
+                break;
+            }
+        }
+
+        if (! array_key_exists('tipo_movimiento', $merge) && ! $this->exists('tipo_movimiento')) {
             foreach (['tipoMovimiento', 'tipo'] as $alias) {
                 if ($this->exists($alias)) {
                     $merge['tipo_movimiento'] = $this->input($alias);
@@ -36,7 +48,7 @@ class CreateMaeCuentaContaSucDetalleRequest extends FormRequest
         }
 
         if (! $this->exists('descripcion_movimiento')) {
-            foreach (['descripcionMovimiento', 'descripcion'] as $alias) {
+            foreach (['descripcionMovimiento', 'descripcion', 'concepto'] as $alias) {
                 if ($this->exists($alias)) {
                     $merge['descripcion_movimiento'] = $this->input($alias);
                     break;
@@ -106,7 +118,15 @@ class CreateMaeCuentaContaSucDetalleRequest extends FormRequest
                 ),
             ];
 
-        $esConCuentas = in_array($this->input('tipo_movimiento'), [
+        $esGasto = MaeCuentaContaSucDetalle::isTipoGasto($this->input('tipo_movimiento'));
+        $origenId = (int) $this->input('cuenta_origen_id');
+        $destinoId = (int) $this->input('cuenta_destino_id');
+        $cuentaRuta = (int) $this->route('id');
+        $gastoSobreMismaCuenta = $origenId > 0 && (
+            $origenId === $destinoId
+            || ($destinoId < 1 && ($cuentaRuta < 1 || $origenId === $cuentaRuta))
+        );
+        $esConCuentas = ! $esGasto && ! $gastoSobreMismaCuenta && in_array($this->input('tipo_movimiento'), [
             MaeCuentaContaSucDetalle::TIPO_TRANSFERENCIA,
             MaeCuentaContaSucDetalle::TIPO_RETIRO,
             MaeCuentaContaSucDetalle::TIPO_VENTA_EFECTIVO,
@@ -153,7 +173,7 @@ class CreateMaeCuentaContaSucDetalleRequest extends FormRequest
             'mae_cuenta_conta_suc_id.required' => 'La cuenta contable es obligatoria.',
             'mae_cuenta_conta_suc_id.exists' => 'La cuenta contable no existe, no pertenece a tu negocio o está eliminada.',
             'tipo_movimiento.required' => 'El tipo de movimiento es obligatorio.',
-            'tipo_movimiento.in' => 'El tipo de movimiento debe ser deposito, transferencia, retiro, venta_efectivo o venta_tarjeta.',
+            'tipo_movimiento.in' => 'El tipo de movimiento debe ser deposito, transferencia, retiro, gasto, gasto_operativo, pago_proveedor, retiro_efectivo, venta_efectivo o venta_tarjeta.',
             'descripcion_movimiento.required' => 'La descripción del movimiento es obligatoria.',
             'descripcion_movimiento.max' => 'La descripción no puede superar :max caracteres.',
             'monto_movimiento.required' => 'El monto del movimiento es obligatorio.',

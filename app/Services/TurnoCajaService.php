@@ -379,10 +379,7 @@ class TurnoCajaService
     public function registrarGasto(TurnoCaja $turno, User|Staff $actor, array $data): GastoEnTurno
     {
         $this->assertCanRegisterGasto($turno, $actor);
-
-        if (! $turno->isOpen()) {
-            throw new HttpException(422, 'No puedes registrar gastos en un turno cerrado.');
-        }
+        $this->assertTurnoAcceptsGasto($turno, $actor);
 
         $tipo = GastoEnTurno::normalizeTipo($data['tipo_gasto'] ?? null);
         if ($tipo === null) {
@@ -425,6 +422,7 @@ class TurnoCajaService
             ]);
 
             $this->syncGastoTotals($turnoLocked);
+            $this->incrementCierreCorte($turnoLocked, $this->corteFieldForGasto($tipo), $monto);
 
             return $gasto->refresh();
         });
@@ -510,10 +508,7 @@ class TurnoCajaService
     public function registrarDeposito(TurnoCaja $turno, User|Staff $actor, array $data): DepositoEnTurno
     {
         $this->assertCanRegisterDeposito($turno, $actor);
-
-        if (! $turno->isOpen()) {
-            throw new HttpException(422, 'No puedes registrar depósitos en un turno cerrado.');
-        }
+        $this->assertTurnoAcceptsDeposito($turno, $actor);
 
         $monto = round((float) $data['monto'], 2);
         if ($monto <= 0) {
@@ -521,21 +516,86 @@ class TurnoCajaService
         }
 
         return DB::transaction(function () use ($turno, $actor, $data, $monto) {
-            $deposito = DepositoEnTurno::query()->create([
-                'turno_caja_id' => $turno->id,
-                'id_user' => $actor instanceof Staff ? $actor->id : $turno->id_user,
-                'user_id' => $actor instanceof User ? $actor->id : $this->auditUserId($actor, $turno->negocio),
-                'negocio_id' => $turno->negocio_id,
-                'sucursal_id' => $turno->sucursal_id,
-                'descripcion' => trim((string) $data['descripcion']),
-                'monto' => $monto,
-                'fecha_registro' => now(),
-            ]);
+            /** @var TurnoCaja $turnoLocked */
+            $turnoLocked = TurnoCaja::query()->whereKey($turno->id)->lockForUpdate()->firstOrFail();
 
-            $this->syncDepositoTotals($turno);
+            $deposito = $this->createDepositoEnTurno(
+                $turnoLocked,
+                $actor,
+                trim((string) $data['descripcion']),
+                $monto,
+            );
+
+            $this->syncDepositoTotals($turnoLocked);
+            $this->incrementCierreCorte($turnoLocked, 'total_depositos_efectivo', $monto);
 
             return $deposito->refresh();
         });
+    }
+
+    /**
+     * Depósito o retiro aceptado en cuentas contables: se guarda en el turno
+     * igual que si lo registrara la cajera (tb_deposito / tb_gastos + totales + corte).
+     */
+    public function registrarMovimientoContableAceptado(
+        TurnoCaja $turno,
+        User|Staff $actor,
+        bool $esRetiro,
+        string $descripcion,
+        float $monto,
+    ): void {
+        $monto = round($monto, 2);
+        if ($monto <= 0) {
+            return;
+        }
+
+        $descripcion = trim($descripcion);
+        if ($descripcion === '') {
+            $descripcion = $esRetiro
+                ? 'Retiro aceptado desde cuenta contable'
+                : 'Depósito aceptado desde cuenta contable';
+        }
+
+        /** @var TurnoCaja $turnoLocked */
+        $turnoLocked = TurnoCaja::query()->whereKey($turno->id)->lockForUpdate()->firstOrFail();
+        $turnoLocked->loadMissing('negocio');
+
+        if ($esRetiro) {
+            GastoEnTurno::query()->create([
+                'turno_caja_id' => $turnoLocked->id,
+                'id_user' => $actor instanceof Staff ? $actor->id : $turnoLocked->id_user,
+                'user_id' => $actor instanceof User ? $actor->id : $this->auditUserId($actor, $turnoLocked->negocio),
+                'negocio_id' => $turnoLocked->negocio_id,
+                'sucursal_id' => $turnoLocked->sucursal_id,
+                'tipo_gasto' => GastoEnTurno::TIPO_RETIRO_EFECTIVO,
+                'proveedor_id' => null,
+                'descripcion' => $descripcion,
+                'monto' => $monto,
+                'fecha_registro' => now(),
+            ]);
+            $this->syncGastoTotals($turnoLocked);
+            $this->incrementCierreCorte($turnoLocked, 'total_retiros_efectivo', $monto);
+
+            return;
+        }
+
+        $this->createDepositoEnTurno($turnoLocked, $actor, $descripcion, $monto);
+        $this->syncDepositoTotals($turnoLocked);
+        $this->incrementCierreCorte($turnoLocked, 'total_depositos_efectivo', $monto);
+    }
+
+    public function turnoPendienteDeValidacion(int $negocioId, int $sucursalId): ?TurnoCaja
+    {
+        return TurnoCaja::query()
+            ->where('negocio_id', $negocioId)
+            ->where('sucursal_id', $sucursalId)
+            ->where(function ($query) {
+                $query->where('status', TurnoCaja::STATUS_ABIERTO)
+                    ->orWhere('status_administrador', TurnoCaja::STATUS_ABIERTO)
+                    ->orWhere('status_gerencia', TurnoCaja::STATUS_ABIERTO);
+            })
+            ->latest('id')
+            ->first();
     }
 
     public function listDepositos(TurnoCaja $turno, int $perPage = 50): LengthAwarePaginator
@@ -768,6 +828,10 @@ class TurnoCajaService
 
             $payload = [
                 ...$this->turnoTotalsFromCortes($cortes),
+                'total_pagos_proveedores' => $pagosProveedores,
+                'total_gastos_operativos' => $gastosOperativos,
+                'total_retiros_efectivo' => $retirosEfectivo,
+                'total_depositos_efectivo' => $depositos,
                 'efectivo_esperado' => $efectivoEsperado,
                 'efectivo_real' => round($efectivoReal, 2),
                 'efectivo_real_cajera' => $cortes['efectivo_real_cajera'],
@@ -788,6 +852,9 @@ class TurnoCajaService
 
             $turno->fill($payload);
             $turno->save();
+
+            $turno = $turno->refresh();
+            $this->cuentasContablesDetalles->registrarGastosCorteSucursal($turno, $actor);
 
             return $turno->refresh()->load($this->turnoRelations());
         });
@@ -811,16 +878,21 @@ class TurnoCajaService
     ): TurnoCaja {
         $this->assertCanCerrarGerencia($actor, $turno);
 
-        $turno->efectivo_gerencia = round((float) $data['efectivo_gerencia'], 2);
-        $turno->terminal_gerencia = round((float) $data['terminal_gerencia'], 2);
-        $turno->diferencia_gerencia = round((float) $data['diferencia_gerencia'], 2);
-        $turno->date_validation_gerencia = ! empty($data['date_validation_gerencia'])
-            ? $data['date_validation_gerencia']
-            : now();
-        $turno->user_id_date_validation_gerencia = $this->auditUserId($actor, $turno->negocio);
-        $turno->save();
+        return DB::transaction(function () use ($turno, $actor, $data) {
+            $turno->efectivo_gerencia = round((float) $data['efectivo_gerencia'], 2);
+            $turno->terminal_gerencia = round((float) $data['terminal_gerencia'], 2);
+            $turno->diferencia_gerencia = round((float) $data['diferencia_gerencia'], 2);
+            $turno->date_validation_gerencia = ! empty($data['date_validation_gerencia'])
+                ? $data['date_validation_gerencia']
+                : now();
+            $turno->user_id_date_validation_gerencia = $this->auditUserId($actor, $turno->negocio);
+            $turno->save();
 
-        return $turno->refresh()->load($this->turnoRelations());
+            $turno = $turno->refresh();
+            $this->cuentasContablesDetalles->registrarSobranteCorteGerencia($turno, $actor);
+
+            return $turno->refresh()->load($this->turnoRelations());
+        });
     }
 
     /**
@@ -840,7 +912,9 @@ class TurnoCajaService
             );
             $turno->save();
 
-            $this->cuentasContablesDetalles->registrarVentasCorteGerencia($turno->refresh(), $actor);
+            $turno = $turno->refresh();
+            $this->cuentasContablesDetalles->registrarSobranteCorteGerencia($turno, $actor);
+            $this->cuentasContablesDetalles->registrarVentasCorteGerencia($turno, $actor);
 
             return $turno->refresh()->load($this->turnoRelations());
         });
@@ -1055,22 +1129,106 @@ class TurnoCajaService
         ];
     }
 
+    private function createDepositoEnTurno(
+        TurnoCaja $turno,
+        User|Staff $actor,
+        string $descripcion,
+        float $monto,
+    ): DepositoEnTurno {
+        $turno->loadMissing('negocio');
+
+        return DepositoEnTurno::query()->create([
+            'turno_caja_id' => $turno->id,
+            'id_user' => $actor instanceof Staff ? $actor->id : $turno->id_user,
+            'user_id' => $actor instanceof User ? $actor->id : $this->auditUserId($actor, $turno->negocio),
+            'negocio_id' => $turno->negocio_id,
+            'sucursal_id' => $turno->sucursal_id,
+            'descripcion' => $descripcion,
+            'monto' => $monto,
+            'fecha_registro' => now(),
+        ]);
+    }
+
+    private function corteFieldForGasto(string $tipo): string
+    {
+        return match ($tipo) {
+            GastoEnTurno::TIPO_RETIRO_EFECTIVO => 'total_retiros_efectivo',
+            GastoEnTurno::TIPO_PAGO_PROVEEDOR => 'total_pagos_proveedores',
+            default => 'total_gastos_operativos',
+        };
+    }
+
+    /**
+     * Si la cajera ya cerró, el corte de cierre debe reflejar depósitos/retiros posteriores.
+     */
+    private function incrementCierreCorte(TurnoCaja $turno, string $field, float $monto): void
+    {
+        if ($monto <= 0) {
+            return;
+        }
+
+        $corte = $turno->cortes()
+            ->where('tipo_corte', TurnoCajaCorte::TIPO_CIERRE)
+            ->latest('id')
+            ->lockForUpdate()
+            ->first();
+
+        if (! $corte) {
+            return;
+        }
+
+        $corte->forceFill([
+            $field => round((float) $corte->{$field} + $monto, 2),
+        ])->save();
+    }
+
     private function syncGastoTotals(TurnoCaja $turno): void
     {
         $gastos = $this->sumGastosByTipo($turno);
 
-        $turno->forceFill([
+        $payload = [
             'total_pagos_proveedores' => $gastos['pago_proveedor'],
             'total_gastos_operativos' => $gastos['gasto_operativo'],
             'total_retiros_efectivo' => $gastos['retiro_efectivo'],
-        ])->save();
+        ];
+
+        if ($turno->efectivo_real !== null) {
+            $depositos = $this->sumDepositos($turno);
+            $payload['diferencia'] = round(
+                (float) $turno->efectivo_esperado
+                + $depositos
+                - (float) $turno->efectivo_real
+                - $gastos['pago_proveedor']
+                - $gastos['gasto_operativo']
+                - $gastos['retiro_efectivo'],
+                2
+            );
+        }
+
+        $turno->forceFill($payload)->save();
     }
 
     private function syncDepositoTotals(TurnoCaja $turno): void
     {
-        $turno->forceFill([
-            'total_depositos_efectivo' => $this->sumDepositos($turno),
-        ])->save();
+        $depositos = $this->sumDepositos($turno);
+        $payload = [
+            'total_depositos_efectivo' => $depositos,
+        ];
+
+        if ($turno->efectivo_real !== null) {
+            $gastos = $this->sumGastosByTipo($turno);
+            $payload['diferencia'] = round(
+                (float) $turno->efectivo_esperado
+                + $depositos
+                - (float) $turno->efectivo_real
+                - $gastos['pago_proveedor']
+                - $gastos['gasto_operativo']
+                - $gastos['retiro_efectivo'],
+                2
+            );
+        }
+
+        $turno->forceFill($payload)->save();
     }
 
     private function assertCanRegisterDeposito(TurnoCaja $turno, User|Staff $actor): void
@@ -1078,7 +1236,7 @@ class TurnoCajaService
         if ($actor instanceof Staff) {
             $actor->loadMissing('role');
 
-            if ($actor->role?->allows('corteCaja')) {
+            if ($this->staffCanListAllTurnos($actor)) {
                 if ((int) $turno->negocio_id !== (int) $actor->negocio_id) {
                     throw new HttpException(403, 'No puedes registrar depósitos en este turno de caja.');
                 }
@@ -1103,7 +1261,7 @@ class TurnoCajaService
         if ($actor instanceof Staff) {
             $actor->loadMissing('role');
 
-            if ($actor->role?->allows('corteCaja')) {
+            if ($this->staffCanListAllTurnos($actor)) {
                 if ((int) $turno->negocio_id !== (int) $actor->negocio_id) {
                     throw new HttpException(403, 'No puedes registrar gastos en este turno de caja.');
                 }
@@ -1121,6 +1279,84 @@ class TurnoCajaService
         if ((int) $turno->negocio_id !== (int) ($actor->negocio?->id)) {
             throw new HttpException(403, 'No puedes registrar gastos en este turno de caja.');
         }
+    }
+
+    /**
+     * Cajera: solo con status abierto.
+     * Encargado (corteCaja / dueño): mientras status_administrador esté abierto.
+     * Gerencia (corteCajaGerenteAdmo / dueño): mientras status_gerencia esté abierto.
+     */
+    private function assertTurnoAcceptsGasto(TurnoCaja $turno, User|Staff $actor): void
+    {
+        $this->assertTurnoAcceptsMovimiento(
+            $turno,
+            $actor,
+            $this->gastoTurnoCerradoMessage($actor, $turno),
+        );
+    }
+
+    private function assertTurnoAcceptsDeposito(TurnoCaja $turno, User|Staff $actor): void
+    {
+        $this->assertTurnoAcceptsMovimiento(
+            $turno,
+            $actor,
+            $this->depositoTurnoCerradoMessage($actor, $turno),
+        );
+    }
+
+    private function assertTurnoAcceptsMovimiento(TurnoCaja $turno, User|Staff $actor, string $closedMessage): void
+    {
+        if ($this->actorCanRegisterMovimientoDuringValidation($actor, $turno)) {
+            return;
+        }
+
+        if ($turno->isOpen()) {
+            return;
+        }
+
+        throw new HttpException(422, $closedMessage);
+    }
+
+    private function actorCanRegisterMovimientoDuringValidation(User|Staff $actor, TurnoCaja $turno): bool
+    {
+        if ($actor instanceof User) {
+            return $turno->isAdminOpen() || $turno->isGerenciaOpen();
+        }
+
+        $actor->loadMissing('role');
+
+        if ($actor->role?->allows('corteCaja') && $turno->isAdminOpen()) {
+            return true;
+        }
+
+        return (bool) $actor->role?->allows('corteCajaGerenteAdmo') && $turno->isGerenciaOpen();
+    }
+
+    private function gastoTurnoCerradoMessage(User|Staff $actor, TurnoCaja $turno): string
+    {
+        return $this->movimientoTurnoCerradoMessage($actor, $turno, 'gastos');
+    }
+
+    private function depositoTurnoCerradoMessage(User|Staff $actor, TurnoCaja $turno): string
+    {
+        return $this->movimientoTurnoCerradoMessage($actor, $turno, 'depósitos');
+    }
+
+    private function movimientoTurnoCerradoMessage(User|Staff $actor, TurnoCaja $turno, string $tipo): string
+    {
+        if ($actor instanceof Staff) {
+            $actor->loadMissing('role');
+
+            if ($actor->role?->allows('corteCaja') && ! $turno->isAdminOpen()) {
+                return "No puedes registrar {$tipo}. El corte del encargado de sucursal ya está cerrado.";
+            }
+
+            if ($actor->role?->allows('corteCajaGerenteAdmo') && ! $turno->isGerenciaOpen()) {
+                return "No puedes registrar {$tipo}. La validación gerencial ya está cerrada.";
+            }
+        }
+
+        return "No puedes registrar {$tipo} en un turno cerrado.";
     }
 
     /**

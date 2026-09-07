@@ -22,12 +22,32 @@ class MaeCuentaContaSucDetalle extends Model
     /** Venta con tarjeta del corte gerencial → abona cuenta matriz. */
     public const TIPO_VENTA_TARJETA = 'venta_tarjeta';
 
+    /** Gasto directo sobre una cuenta (no es traspaso). */
+    public const TIPO_GASTO = 'gasto';
+
+    public const TIPO_GASTO_OPERATIVO = 'gasto_operativo';
+
+    public const TIPO_PAGO_PROVEEDOR = 'pago_proveedor';
+
+    public const TIPO_RETIRO_EFECTIVO = 'retiro_efectivo';
+
+    public const TIPOS_GASTO = [
+        self::TIPO_GASTO,
+        self::TIPO_GASTO_OPERATIVO,
+        self::TIPO_PAGO_PROVEEDOR,
+        self::TIPO_RETIRO_EFECTIVO,
+    ];
+
     public const TIPOS_MOVIMIENTO = [
         self::TIPO_DEPOSITO,
         self::TIPO_TRANSFERENCIA,
         self::TIPO_RETIRO,
         self::TIPO_VENTA_EFECTIVO,
         self::TIPO_VENTA_TARJETA,
+        self::TIPO_GASTO,
+        self::TIPO_GASTO_OPERATIVO,
+        self::TIPO_PAGO_PROVEEDOR,
+        self::TIPO_RETIRO_EFECTIVO,
     ];
 
     public const TIPOS_VENTA_CORTE = [
@@ -117,9 +137,28 @@ class MaeCuentaContaSucDetalle extends Model
             'venta_tarjeta' => self::TIPO_VENTA_TARJETA,
             'venta_con_tarjeta' => self::TIPO_VENTA_TARJETA,
             'ventatarjeta' => self::TIPO_VENTA_TARJETA,
+            'gasto' => self::TIPO_GASTO,
+            'gasto_operativo' => self::TIPO_GASTO_OPERATIVO,
+            'gastooperativo' => self::TIPO_GASTO_OPERATIVO,
+            'pago_proveedor' => self::TIPO_PAGO_PROVEEDOR,
+            'pagoproveedor' => self::TIPO_PAGO_PROVEEDOR,
+            'pago_a_proveedor' => self::TIPO_PAGO_PROVEEDOR,
+            'retiro_efectivo' => self::TIPO_RETIRO_EFECTIVO,
+            'retiroefectivo' => self::TIPO_RETIRO_EFECTIVO,
+            'retiro_de_efectivo' => self::TIPO_RETIRO_EFECTIVO,
         ];
 
         return $aliases[$key] ?? null;
+    }
+
+    public function isGasto(): bool
+    {
+        return self::isTipoGasto((string) $this->tipo_movimiento);
+    }
+
+    public static function isTipoGasto(?string $tipo): bool
+    {
+        return $tipo !== null && in_array($tipo, self::TIPOS_GASTO, true);
     }
 
     public function isVentaCorte(): bool

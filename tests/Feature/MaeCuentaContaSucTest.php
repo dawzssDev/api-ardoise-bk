@@ -2,9 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Models\GastoEnTurno;
 use App\Models\MaeCuentaContaSuc;
 use App\Models\MaeCuentaContaSucDetalle;
+use App\Models\Role;
 use App\Models\Sucursal;
+use App\Models\TurnoCaja;
+use App\Models\TurnoCajaCorte;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -222,6 +226,114 @@ class MaeCuentaContaSucTest extends TestCase
         $this->deleteJson('/api/cuentas-contables-detalles/'.$detalleId)
             ->assertStatus(422)
             ->assertJsonPath('message', 'No puedes eliminar una solicitud pendiente. El encargado de sucursal debe aceptarla o rechazarla.');
+    }
+
+    public function test_gerente_can_register_direct_gasto_on_selected_account(): void
+    {
+        [$user, $negocio] = $this->actingWithNegocio();
+
+        $cuenta = $negocio->cuentasContables()->create([
+            'tipo_cuenta' => MaeCuentaContaSuc::TIPO_MAESTRA,
+            'titulo_cuenta' => 'Cuenta maestra',
+            'saldo' => 14389,
+            'status' => MaeCuentaContaSuc::STATUS_ACTIVO,
+            'deleted' => MaeCuentaContaSuc::DELETED_NO,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        $this->postJson("/api/cuentas-contables/{$cuenta->id}/detalles", [
+            'tipo' => 'Gasto operativo',
+            'descripcion' => 'Pago contador 1000 mes SEP',
+            'monto' => 1000,
+            'cuentaOrigen' => $cuenta->id,
+            'cuentaDestino' => $cuenta->id,
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.detalle.tipo_movimiento', MaeCuentaContaSucDetalle::TIPO_GASTO_OPERATIVO)
+            ->assertJsonPath('data.detalle.tipo_solicitud', 'gasto')
+            ->assertJsonPath('data.detalle.sentido', 'salida')
+            ->assertJsonPath('data.detalle.es_salida', true)
+            ->assertJsonPath('data.detalle.es_entrada', false)
+            ->assertJsonPath('data.detalle.cuenta_origen_id', $cuenta->id)
+            ->assertJsonPath('data.detalle.cuenta_destino_id', null)
+            ->assertJsonPath('data.detalle.monto_movimiento', '1000.00')
+            ->assertJsonPath('data.detalle.status', MaeCuentaContaSucDetalle::STATUS_ACEPTADO);
+
+        $this->assertDatabaseHas('mae_cuenta_conta_suc', [
+            'id' => $cuenta->id,
+            'saldo' => 13389,
+        ]);
+        $this->assertDatabaseHas('mae_cuenta_conta_suc_detalle', [
+            'mae_cuenta_conta_suc_id' => $cuenta->id,
+            'tipo_movimiento' => MaeCuentaContaSucDetalle::TIPO_GASTO_OPERATIVO,
+            'descripcion_movimiento' => 'Pago contador 1000 mes SEP',
+            'monto_movimiento' => 1000,
+            'cuenta_destino_id' => null,
+        ]);
+    }
+
+    public function test_capturar_gasto_works_when_front_sends_transferencia_on_same_account(): void
+    {
+        [$user, $negocio] = $this->actingWithNegocio();
+
+        $cuenta = $negocio->cuentasContables()->create([
+            'tipo_cuenta' => MaeCuentaContaSuc::TIPO_MAESTRA,
+            'titulo_cuenta' => 'ABASTOS',
+            'saldo' => 2000,
+            'status' => MaeCuentaContaSuc::STATUS_ACTIVO,
+            'deleted' => MaeCuentaContaSuc::DELETED_NO,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        $this->postJson("/api/cuentas-contables/{$cuenta->id}/detalles", [
+            'tipoMovimiento' => 'transferencia',
+            'tipo' => 'Gasto operativo',
+            'descripcion' => 'abogado',
+            'monto' => 1500,
+            'cuentaOrigen' => $cuenta->id,
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.detalle.tipo_movimiento', MaeCuentaContaSucDetalle::TIPO_GASTO_OPERATIVO)
+            ->assertJsonPath('data.detalle.sentido', 'salida')
+            ->assertJsonPath('data.detalle.es_salida', true)
+            ->assertJsonPath('data.detalle.cuenta_destino_id', null)
+            ->assertJsonPath('data.detalle.monto_movimiento', '1500.00');
+
+        $this->assertDatabaseHas('mae_cuenta_conta_suc', [
+            'id' => $cuenta->id,
+            'saldo' => 500,
+        ]);
+    }
+
+    public function test_direct_gasto_rejects_insufficient_balance(): void
+    {
+        [$user, $negocio] = $this->actingWithNegocio();
+
+        $cuenta = $negocio->cuentasContables()->create([
+            'tipo_cuenta' => MaeCuentaContaSuc::TIPO_MAESTRA,
+            'titulo_cuenta' => 'Cuenta maestra',
+            'saldo' => 100,
+            'status' => MaeCuentaContaSuc::STATUS_ACTIVO,
+            'deleted' => MaeCuentaContaSuc::DELETED_NO,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        $this->postJson('/api/cuentas-contables-detalles', [
+            'idMaeCuentaContaSuc' => $cuenta->id,
+            'tipo_gasto' => 'Pago proveedor',
+            'descripcion_movimiento' => 'Factura',
+            'monto_movimiento' => 150,
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Saldo insuficiente en la cuenta origen.');
+
+        $this->assertDatabaseHas('mae_cuenta_conta_suc', [
+            'id' => $cuenta->id,
+            'saldo' => 100,
+        ]);
     }
 
     public function test_encargado_can_accept_transfer_from_maestra_to_subcuenta(): void
@@ -493,6 +605,134 @@ class MaeCuentaContaSucTest extends TestCase
 
         $this->assertDatabaseHas('mae_cuenta_conta_suc', ['id' => $subcuenta->id, 'saldo' => 90]);
         $this->assertDatabaseHas('mae_cuenta_conta_suc', ['id' => $maestra->id, 'saldo' => 160]);
+    }
+
+    public function test_accepting_deposito_and_retiro_saves_them_on_turno_and_corte_after_cajera_closed(): void
+    {
+        [$user, $negocio, $sucursal, $encargado] = $this->actingWithStaffSucursal();
+
+        $permissions = Role::defaultPermissions();
+        $permissions['corteCaja'] = false;
+        $permissions['corteCajaCajera'] = true;
+        $roleCajera = $negocio->roles()->create([
+            'name' => 'Cajera corte',
+            'permissions' => $permissions,
+            'status' => true,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+        $empleadoCajera = $negocio->empleados()->create([
+            'sucursal_id' => $sucursal->id,
+            'role_id' => $roleCajera->id,
+            'first_name' => 'Ana',
+            'paternal_surname' => 'Caja',
+            'employee_number' => 'EMP-CAJ-CC',
+            'status' => 'activo',
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+        $cajera = $negocio->staff()->create([
+            'username' => 'ana.corte.conta',
+            'password' => 'secreto123',
+            'sucursal_id' => $sucursal->id,
+            'role_id' => $roleCajera->id,
+            'empleado_id' => $empleadoCajera->id,
+            'status' => true,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        $maestra = $negocio->cuentasContables()->create([
+            'tipo_cuenta' => MaeCuentaContaSuc::TIPO_MAESTRA,
+            'titulo_cuenta' => 'Maestra',
+            'saldo' => 500,
+            'status' => MaeCuentaContaSuc::STATUS_ACTIVO,
+            'deleted' => MaeCuentaContaSuc::DELETED_NO,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+        $subcuenta = $negocio->cuentasContables()->create([
+            'tipo_cuenta' => MaeCuentaContaSuc::TIPO_SUBCUENTA,
+            'sucursal_id' => $sucursal->id,
+            'titulo_cuenta' => 'Caja sucursal',
+            'saldo' => 80,
+            'status' => MaeCuentaContaSuc::STATUS_ACTIVO,
+            'deleted' => MaeCuentaContaSuc::DELETED_NO,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        Sanctum::actingAs($cajera);
+        $turnoId = $this->postJson('/api/turnos-caja/abrir', [
+            'fondo_inicial' => 200,
+        ])->assertCreated()->json('data.turno.id');
+        $this->postJson("/api/turnos-caja/{$turnoId}/cerrar", [
+            'efectivo_real' => 200,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.turno.status', TurnoCaja::STATUS_CERRADO)
+            ->assertJsonPath('data.turno.status_administrador', TurnoCaja::STATUS_ABIERTO);
+
+        Sanctum::actingAs($user);
+        $depositoId = $this->postJson('/api/cuentas-contables-detalles', [
+            'idMaeCuentaContaSuc' => $maestra->id,
+            'tipoMovimiento' => 'transferencia',
+            'descripcionMovimiento' => 'Depósito a sucursal',
+            'montoMovimiento' => 120,
+            'cuentaOrigen' => $maestra->id,
+            'cuentaDestino' => $subcuenta->id,
+        ])->assertCreated()->json('data.detalle.id');
+
+        $retiroId = $this->postJson('/api/cuentas-contables-detalles', [
+            'idMaeCuentaContaSuc' => $subcuenta->id,
+            'tipoMovimiento' => 'retiro',
+            'descripcionMovimiento' => 'Retiro a matriz',
+            'montoMovimiento' => 40,
+            'cuentaOrigen' => $subcuenta->id,
+            'cuentaDestino' => $maestra->id,
+        ])->assertCreated()->json('data.detalle.id');
+
+        Sanctum::actingAs($encargado);
+        $this->postJson("/api/cuentas-contables-detalles/{$depositoId}/aceptar")
+            ->assertOk()
+            ->assertJsonPath('data.detalle.status', MaeCuentaContaSucDetalle::STATUS_ACEPTADO);
+
+        $this->assertDatabaseHas('tb_deposito_efectivo_en_turno', [
+            'turno_caja_id' => $turnoId,
+            'descripcion' => 'Depósito a sucursal',
+            'monto' => 120,
+        ]);
+        $this->assertDatabaseHas('tb_turnos_cajas', [
+            'id' => $turnoId,
+            'total_depositos_efectivo' => 120,
+        ]);
+        $this->assertDatabaseHas('tb_turnos_cajas_cortes', [
+            'turno_caja_id' => $turnoId,
+            'tipo_corte' => TurnoCajaCorte::TIPO_CIERRE,
+            'total_depositos_efectivo' => 120,
+        ]);
+
+        $this->postJson("/api/cuentas-contables-detalles/{$retiroId}/aceptar")
+            ->assertOk()
+            ->assertJsonPath('data.detalle.status', MaeCuentaContaSucDetalle::STATUS_ACEPTADO);
+
+        $this->assertDatabaseHas('tb_gastos_en_turno', [
+            'turno_caja_id' => $turnoId,
+            'tipo_gasto' => GastoEnTurno::TIPO_RETIRO_EFECTIVO,
+            'descripcion' => 'Retiro a matriz',
+            'monto' => 40,
+        ]);
+        $this->assertDatabaseHas('tb_turnos_cajas', [
+            'id' => $turnoId,
+            'total_retiros_efectivo' => 40,
+            'total_depositos_efectivo' => 120,
+        ]);
+        $this->assertDatabaseHas('tb_turnos_cajas_cortes', [
+            'turno_caja_id' => $turnoId,
+            'tipo_corte' => TurnoCajaCorte::TIPO_CIERRE,
+            'total_retiros_efectivo' => 40,
+            'total_depositos_efectivo' => 120,
+        ]);
     }
 
     public function test_reject_retiro_does_not_change_balances(): void
