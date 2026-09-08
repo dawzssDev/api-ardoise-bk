@@ -63,6 +63,15 @@ class CreateGastoEnTurnoRequest extends FormRequest
             }
         }
 
+        if (! $this->exists('origen')) {
+            foreach (['origen_descuento', 'descuento_a', 'descuento', 'pagado_con', 'fuente'] as $alias) {
+                if ($this->exists($alias)) {
+                    $merge['origen'] = $this->input($alias);
+                    break;
+                }
+            }
+        }
+
         $tipoRaw = $merge['tipo_gasto'] ?? $this->input('tipo_gasto');
         $normalized = GastoEnTurno::normalizeTipo($tipoRaw);
         if ($normalized !== null) {
@@ -72,6 +81,17 @@ class CreateGastoEnTurnoRequest extends FormRequest
         $tipoFinal = $merge['tipo_gasto'] ?? $this->input('tipo_gasto');
         if ($tipoFinal !== GastoEnTurno::TIPO_PAGO_PROVEEDOR) {
             $merge['proveedor_id'] = null;
+        }
+
+        $origenFueEnviado = array_key_exists('origen', $merge) || $this->exists('origen');
+        if ($origenFueEnviado) {
+            $origenRaw = $merge['origen'] ?? $this->input('origen');
+            $origenNormalized = GastoEnTurno::normalizeOrigen($origenRaw);
+            if ($origenNormalized !== null) {
+                $merge['origen'] = $origenNormalized;
+            } elseif ($origenRaw === null || $origenRaw === '') {
+                $merge['origen'] = null;
+            }
         }
 
         if ($merge !== []) {
@@ -89,6 +109,7 @@ class CreateGastoEnTurnoRequest extends FormRequest
 
         return [
             'tipo_gasto' => ['required', 'string', Rule::in(GastoEnTurno::TIPOS)],
+            'origen' => ['sometimes', 'nullable', 'string', Rule::in(GastoEnTurno::ORIGENES)],
             'descripcion' => ['required', 'string', 'max:500'],
             'monto' => ['required', 'numeric', 'gt:0'],
             'sucursal_id' => ['sometimes', 'nullable', 'integer'],
@@ -113,6 +134,7 @@ class CreateGastoEnTurnoRequest extends FormRequest
         return [
             'tipo_gasto.required' => 'El tipo de gasto es obligatorio.',
             'tipo_gasto.in' => 'El tipo de gasto debe ser Pago proveedor, Gasto operativo o Retiro de efectivo.',
+            'origen.in' => 'El origen debe ser Descuento a venta o Descuento a depósitos.',
             'descripcion.required' => 'La descripción es obligatoria.',
             'descripcion.max' => 'La descripción no puede superar :max caracteres.',
             'monto.required' => 'El monto es obligatorio.',

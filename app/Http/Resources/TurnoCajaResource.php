@@ -52,7 +52,12 @@ class TurnoCajaResource extends JsonResource
             'total_gastos_operativos' => (string) $this->total_gastos_operativos,
             'total_retiros_efectivo' => (string) $this->total_retiros_efectivo,
             'total_depositos_efectivo' => (string) $this->total_depositos_efectivo,
+            'total_pagos_con_deposito' => $this->total_pagos_con_deposito !== null
+                ? (string) $this->total_pagos_con_deposito
+                : null,
             'efectivo_esperado' => (string) $this->efectivo_esperado,
+            'efectivo_esperado_ajustado' => number_format($this->efectivoEsperadoAjustado(), 2, '.', ''),
+            'efectivoEsperadoAjustado' => number_format($this->efectivoEsperadoAjustado(), 2, '.', ''),
             'efectivo_real' => $this->efectivo_real !== null ? (string) $this->efectivo_real : null,
             'efectivo_real_cajera' => $this->efectivo_real_cajera !== null
                 ? (string) $this->efectivo_real_cajera

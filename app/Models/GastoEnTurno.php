@@ -21,6 +21,15 @@ class GastoEnTurno extends Model
         self::TIPO_RETIRO_EFECTIVO,
     ];
 
+    public const ORIGEN_VENTA = 'venta';
+
+    public const ORIGEN_DEPOSITO = 'deposito';
+
+    public const ORIGENES = [
+        self::ORIGEN_VENTA,
+        self::ORIGEN_DEPOSITO,
+    ];
+
     /**
      * @var array<string, string>
      */
@@ -28,6 +37,14 @@ class GastoEnTurno extends Model
         self::TIPO_PAGO_PROVEEDOR => 'Pago proveedor',
         self::TIPO_GASTO_OPERATIVO => 'Gasto operativo',
         self::TIPO_RETIRO_EFECTIVO => 'Retiro de efectivo',
+    ];
+
+    /**
+     * @var array<string, string>
+     */
+    public const ORIGEN_LABELS = [
+        self::ORIGEN_VENTA => 'Descuento a venta',
+        self::ORIGEN_DEPOSITO => 'Descuento a depósitos',
     ];
 
     protected $fillable = [
@@ -38,6 +55,7 @@ class GastoEnTurno extends Model
         'sucursal_id',
         'tipo_gasto',
         'proveedor_id',
+        'origen',
         'descripcion',
         'monto',
         'fecha_registro',
@@ -91,6 +109,67 @@ class GastoEnTurno extends Model
     public static function labelFor(string $tipo): string
     {
         return self::TIPO_LABELS[$tipo] ?? $tipo;
+    }
+
+    public static function normalizeOrigen(mixed $origen): ?string
+    {
+        if ($origen === null) {
+            return null;
+        }
+
+        if (! is_string($origen) && ! is_numeric($origen)) {
+            return null;
+        }
+
+        $raw = trim((string) $origen);
+        if ($raw === '') {
+            return null;
+        }
+
+        if (in_array($raw, self::ORIGENES, true)) {
+            return $raw;
+        }
+
+        $key = mb_strtolower($raw);
+        $key = strtr($key, [
+            'á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u',
+            'Á' => 'a', 'É' => 'e', 'Í' => 'i', 'Ó' => 'o', 'Ú' => 'u',
+        ]);
+        $key = preg_replace('/[\s\-]+/', '_', $key) ?? $key;
+
+        $aliases = [
+            'venta' => self::ORIGEN_VENTA,
+            'ventas' => self::ORIGEN_VENTA,
+            'descuento_a_venta' => self::ORIGEN_VENTA,
+            'descuento_venta' => self::ORIGEN_VENTA,
+            'efectivo' => self::ORIGEN_VENTA,
+            'caja' => self::ORIGEN_VENTA,
+            'deposito' => self::ORIGEN_DEPOSITO,
+            'depositos' => self::ORIGEN_DEPOSITO,
+            'descuento_a_depositos' => self::ORIGEN_DEPOSITO,
+            'descuento_depositos' => self::ORIGEN_DEPOSITO,
+            'cuenta_deposito' => self::ORIGEN_DEPOSITO,
+        ];
+
+        return $aliases[$key] ?? null;
+    }
+
+    public static function labelForOrigen(?string $origen): string
+    {
+        $resolved = self::resolvedOrigen($origen);
+
+        return self::ORIGEN_LABELS[$resolved] ?? $resolved;
+    }
+
+    /** NULL u omitido se trata como descuento a venta. */
+    public static function resolvedOrigen(mixed $origen): string
+    {
+        return self::normalizeOrigen($origen) ?? self::ORIGEN_VENTA;
+    }
+
+    public function esPagoConDeposito(): bool
+    {
+        return self::resolvedOrigen($this->origen) === self::ORIGEN_DEPOSITO;
     }
 
     public function turnoCaja(): BelongsTo

@@ -45,6 +45,8 @@ class GastoEnTurnoResource extends JsonResource
             'tipo_gasto' => $tipo,
             'tipo' => $tipo,
             'tipo_gasto_label' => GastoEnTurno::labelFor($tipo),
+            'origen' => $this->origen,
+            'origen_label' => GastoEnTurno::labelForOrigen($this->origen),
             'proveedor_id' => $this->proveedor_id,
             'id_proveedor' => $this->proveedor_id,
             'proveedor' => $this->whenLoaded('proveedor', fn () => $this->proveedor ? [

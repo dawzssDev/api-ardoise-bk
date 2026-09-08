@@ -35,6 +35,7 @@ class TurnoCajaCorte extends Model
         'total_gastos_operativos',
         'total_retiros_efectivo',
         'total_depositos_efectivo',
+        'total_pagos_con_deposito',
         'efectivo_real_cajera',
         'tipo_corte',
         'fecha_cierre_cajera',
@@ -52,6 +53,7 @@ class TurnoCajaCorte extends Model
             'total_gastos_operativos' => 'decimal:2',
             'total_retiros_efectivo' => 'decimal:2',
             'total_depositos_efectivo' => 'decimal:2',
+            'total_pagos_con_deposito' => 'decimal:2',
             'efectivo_real_cajera' => 'decimal:2',
             'tipo_corte' => 'integer',
             'fecha_cierre_cajera' => 'datetime',
@@ -66,6 +68,26 @@ class TurnoCajaCorte extends Model
     public function isCierre(): bool
     {
         return (int) $this->tipo_corte === self::TIPO_CIERRE;
+    }
+
+    /**
+     * Efectivo a cotejar en este tramo (sin fondo): ventas + depósitos − gastos.
+     */
+    public function efectivoEsperado(): float
+    {
+        return round(
+            (float) $this->total_ventas_efectivo
+            + (float) $this->total_depositos_efectivo
+            - (float) $this->total_pagos_proveedores
+            - (float) $this->total_gastos_operativos
+            - (float) $this->total_retiros_efectivo,
+            2
+        );
+    }
+
+    public function diferencia(): float
+    {
+        return round($this->efectivoEsperado() - (float) $this->efectivo_real_cajera, 2);
     }
 
     public static function labelForTipo(int $tipo): string

@@ -880,6 +880,7 @@ CREATE TABLE `tb_turnos_cajas` (
   `total_gastos_operativos` decimal(12,2) NOT NULL DEFAULT 0.00,
   `total_retiros_efectivo` decimal(12,2) NOT NULL DEFAULT 0.00,
   `total_depositos_efectivo` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `total_pagos_con_deposito` decimal(12,2) NULL DEFAULT NULL,
   `efectivo_esperado` decimal(12,2) NOT NULL DEFAULT 0.00,
   `efectivo_real` decimal(12,2) NULL DEFAULT NULL,
   `efectivo_real_cajera` decimal(12,2) NULL DEFAULT NULL,
@@ -943,6 +944,7 @@ CREATE TABLE `tb_turnos_cajas_cortes` (
   `total_gastos_operativos` decimal(12,2) NOT NULL DEFAULT 0.00,
   `total_retiros_efectivo` decimal(12,2) NOT NULL DEFAULT 0.00,
   `total_depositos_efectivo` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `total_pagos_con_deposito` decimal(12,2) NULL DEFAULT NULL,
   `efectivo_real_cajera` decimal(12,2) NOT NULL DEFAULT 0.00,
   `tipo_corte` tinyint UNSIGNED NOT NULL,
   `fecha_cierre_cajera` timestamp NULL DEFAULT NULL,
@@ -1671,6 +1673,24 @@ ALTER TABLE `sucursales`
 
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_09_07_140000_add_monto_maximo_efectivo_to_sucursales_table', 1);
+
+================================================================================
+ALTER tb_turnos_cajas / tb_turnos_cajas_cortes / tb_gastos_en_turno — total_pagos_con_deposito
+================================================================================
+-- Pagos descontados de la cuenta de depósito de la sucursal (no restan efectivo de caja).
+-- origen en gastos: NULL o venta = descuento a venta | deposito = descuento a depósitos
+ALTER TABLE `tb_turnos_cajas`
+  ADD COLUMN `total_pagos_con_deposito` decimal(12,2) NULL DEFAULT NULL AFTER `total_depositos_efectivo`;
+
+ALTER TABLE `tb_turnos_cajas_cortes`
+  ADD COLUMN `total_pagos_con_deposito` decimal(12,2) NULL DEFAULT NULL AFTER `total_depositos_efectivo`;
+
+ALTER TABLE `tb_gastos_en_turno`
+  ADD COLUMN `origen` varchar(20) NULL DEFAULT NULL AFTER `proveedor_id`,
+  ADD KEY `tb_gastos_en_turno_turno_caja_id_origen_index` (`turno_caja_id`, `origen`);
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_09_08_120000_add_total_pagos_con_deposito_to_turnos_cajas_tables', 1);
 
 ================================================================================
 FIN

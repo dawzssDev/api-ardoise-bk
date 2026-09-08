@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\DepositoEnTurno;
 use App\Models\GastoEnTurno;
+use App\Models\MaeCuentaContaSuc;
 use App\Models\Negocio;
 use App\Models\Orden;
 use App\Models\Proveedor;
@@ -374,7 +375,7 @@ class TurnoCajaService
     }
 
     /**
-     * @param  array{tipo_gasto: string, descripcion: string, monto: float|int|string, proveedor_id?: int|null}  $data
+     * @param  array{tipo_gasto: string, descripcion: string, monto: float|int|string, proveedor_id?: int|null, origen?: string|null}  $data
      */
     public function registrarGasto(TurnoCaja $turno, User|Staff $actor, array $data): GastoEnTurno
     {
@@ -386,6 +387,13 @@ class TurnoCajaService
             throw new HttpException(422, 'El tipo de gasto no es válido.');
         }
 
+        $origen = array_key_exists('origen', $data)
+            ? GastoEnTurno::normalizeOrigen($data['origen'])
+            : null;
+        if (array_key_exists('origen', $data) && $data['origen'] !== null && $data['origen'] !== '' && $origen === null) {
+            throw new HttpException(422, 'El origen del gasto no es válido.');
+        }
+
         $monto = round((float) $data['monto'], 2);
         if ($monto <= 0) {
             throw new HttpException(422, 'El monto debe ser mayor a cero.');
@@ -393,19 +401,23 @@ class TurnoCajaService
 
         $proveedorId = $this->resolveProveedorIdForGasto($turno, $tipo, $data['proveedor_id'] ?? null);
 
-        return DB::transaction(function () use ($turno, $actor, $data, $tipo, $monto, $proveedorId) {
+        return DB::transaction(function () use ($turno, $actor, $data, $tipo, $origen, $monto, $proveedorId) {
             /** @var TurnoCaja $turnoLocked */
             $turnoLocked = TurnoCaja::query()->whereKey($turno->id)->lockForUpdate()->firstOrFail();
 
             $this->syncTurnoVentasWithOrdenes($turnoLocked);
-            $disponible = $this->efectivoDisponibleParaGasto($turnoLocked);
-            if ($monto - $disponible > 0.009) {
-                $fmtDisponible = number_format($disponible, 2, '.', '');
-                $fmtMonto = number_format($monto, 2, '.', '');
-                throw new HttpException(
-                    422,
-                    "El monto ({$fmtMonto}) supera el efectivo en caja. Máximo permitido: {$fmtDisponible} (fondo inicial + ventas en efectivo − gastos ya registrados).",
-                );
+            if (GastoEnTurno::resolvedOrigen($origen) === GastoEnTurno::ORIGEN_DEPOSITO) {
+                $this->debitCuentaDepositoPorGasto($turnoLocked, $actor, $tipo, $monto, $data);
+            } else {
+                $disponible = $this->efectivoDisponibleParaGasto($turnoLocked);
+                if ($monto - $disponible > 0.009) {
+                    $fmtDisponible = number_format($disponible, 2, '.', '');
+                    $fmtMonto = number_format($monto, 2, '.', '');
+                    throw new HttpException(
+                        422,
+                        "El monto ({$fmtMonto}) supera el efectivo en caja. Máximo permitido: {$fmtDisponible} (fondo inicial + ventas en efectivo − gastos ya registrados).",
+                    );
+                }
             }
 
             $gasto = GastoEnTurno::query()->create([
@@ -416,13 +428,14 @@ class TurnoCajaService
                 'sucursal_id' => $turnoLocked->sucursal_id,
                 'tipo_gasto' => $tipo,
                 'proveedor_id' => $proveedorId,
+                'origen' => $origen,
                 'descripcion' => trim((string) $data['descripcion']),
                 'monto' => $monto,
                 'fecha_registro' => now(),
             ]);
 
             $this->syncGastoTotals($turnoLocked);
-            $this->incrementCierreCorte($turnoLocked, $this->corteFieldForGasto($tipo), $monto);
+            $this->incrementCierreCorte($turnoLocked, $this->corteFieldForGasto($tipo, $origen), $monto);
 
             return $gasto->refresh();
         });
@@ -438,6 +451,58 @@ class TurnoCajaService
         $gastos = $this->sumGastosByTipo($turno)['total'];
 
         return round(max(0, $fondo + $ventasEfectivo - $gastos), 2);
+    }
+
+    /**
+     * @param  array{descripcion?: string}  $data
+     */
+    private function debitCuentaDepositoPorGasto(
+        TurnoCaja $turno,
+        User|Staff $actor,
+        string $tipo,
+        float $monto,
+        array $data,
+    ): void {
+        $subcuenta = $this->subcuentaDepositoSucursal($turno);
+        $disponible = round((float) $subcuenta->saldo, 2);
+        if ($monto - $disponible > 0.009) {
+            $fmtDisponible = number_format($disponible, 2, '.', '');
+            $fmtMonto = number_format($monto, 2, '.', '');
+            throw new HttpException(
+                422,
+                "El monto ({$fmtMonto}) supera el saldo disponible en la cuenta de depósito. Máximo permitido: {$fmtDisponible}.",
+            );
+        }
+
+        $descripcion = trim((string) ($data['descripcion'] ?? ''));
+        if ($descripcion === '') {
+            $descripcion = 'Pago con depósito';
+        }
+
+        $this->cuentasContablesDetalles->create($subcuenta, $actor, [
+            'tipo_movimiento' => $tipo,
+            'descripcion_movimiento' => $descripcion,
+            'monto_movimiento' => $monto,
+            'cuenta_origen_id' => $subcuenta->id,
+        ]);
+    }
+
+    private function subcuentaDepositoSucursal(TurnoCaja $turno): MaeCuentaContaSuc
+    {
+        $subcuenta = MaeCuentaContaSuc::query()
+            ->where('negocio_id', $turno->negocio_id)
+            ->where('tipo_cuenta', MaeCuentaContaSuc::TIPO_SUBCUENTA)
+            ->where('sucursal_id', $turno->sucursal_id)
+            ->where('deleted', MaeCuentaContaSuc::DELETED_NO)
+            ->where('status', MaeCuentaContaSuc::STATUS_ACTIVO)
+            ->orderBy('id')
+            ->first();
+
+        if (! $subcuenta) {
+            throw new HttpException(422, 'No hay cuenta de depósito activa para esta sucursal.');
+        }
+
+        return $subcuenta;
     }
 
     private function resolveProveedorIdForGasto(TurnoCaja $turno, string $tipo, mixed $proveedorId): ?int
@@ -481,11 +546,15 @@ class TurnoCajaService
     }
 
     /**
-     * @return array{pago_proveedor: float, gasto_operativo: float, retiro_efectivo: float, total: float}
+     * @return array{pago_proveedor: float, gasto_operativo: float, retiro_efectivo: float, pagos_con_deposito: float, total: float}
      */
     public function sumGastosByTipo(TurnoCaja $turno): array
     {
         $rows = $turno->gastos()
+            ->where(function ($query) {
+                $query->whereNull('origen')
+                    ->orWhere('origen', GastoEnTurno::ORIGEN_VENTA);
+            })
             ->selectRaw('tipo_gasto, SUM(monto) as suma')
             ->groupBy('tipo_gasto')
             ->pluck('suma', 'tipo_gasto');
@@ -493,13 +562,25 @@ class TurnoCajaService
         $pagoProveedor = round((float) ($rows[GastoEnTurno::TIPO_PAGO_PROVEEDOR] ?? 0), 2);
         $gastoOperativo = round((float) ($rows[GastoEnTurno::TIPO_GASTO_OPERATIVO] ?? 0), 2);
         $retiroEfectivo = round((float) ($rows[GastoEnTurno::TIPO_RETIRO_EFECTIVO] ?? 0), 2);
+        $pagosConDeposito = $this->sumPagosConDeposito($turno);
 
         return [
             'pago_proveedor' => $pagoProveedor,
             'gasto_operativo' => $gastoOperativo,
             'retiro_efectivo' => $retiroEfectivo,
+            'pagos_con_deposito' => $pagosConDeposito,
             'total' => round($pagoProveedor + $gastoOperativo + $retiroEfectivo, 2),
         ];
+    }
+
+    public function sumPagosConDeposito(TurnoCaja $turno): float
+    {
+        return round(
+            (float) $turno->gastos()
+                ->where('origen', GastoEnTurno::ORIGEN_DEPOSITO)
+                ->sum('monto'),
+            2
+        );
     }
 
     /**
@@ -654,6 +735,7 @@ class TurnoCajaService
         return [
             ...$movimientos,
             'efectivo_esperado' => $movimientos['total_ventas_efectivo'],
+            'efectivo_esperado_ajustado' => $this->efectivoEsperadoAjustado($movimientos),
             'fondo_inicial' => (float) $turno->fondo_inicial,
             'status' => $turno->status,
             'status_administrador' => $turno->status_administrador,
@@ -760,12 +842,13 @@ class TurnoCajaService
         return DB::transaction(function () use ($turno, $actor, $observaciones, $efectivoRealCajera, $statusGerencia, $hasStatusGerencia) {
             $this->ensureCorteCierre($turno, $actor, $efectivoRealCajera, $observaciones);
             $cortes = $this->sumCortes($turno);
-            $live = $this->sumVentasByPayment($turno);
+            $movimientos = $this->totalesMovimientos($turno);
 
             $payload = [
                 ...$this->turnoTotalsFromCortes($cortes),
-                'efectivo_esperado' => $live['efectivo'],
+                'efectivo_esperado' => $movimientos['total_ventas_efectivo'],
                 'efectivo_real_cajera' => $cortes['efectivo_real_cajera'],
+                'diferencia' => $this->diferenciaDesdeMovimientos($movimientos, $efectivoRealCajera),
                 'fecha_cierre_cajera' => now(),
                 'status' => TurnoCaja::STATUS_CERRADO,
                 // El administrador aún debe cerrar el corte.
@@ -812,19 +895,15 @@ class TurnoCajaService
             );
 
             $cortes = $this->sumCortes($turno);
-            $totales = $this->sumVentasByPayment($turno);
-            $gastos = $this->sumGastosByTipo($turno);
-            $depositos = $this->sumDepositos($turno);
+            $movimientos = $this->totalesMovimientos($turno);
 
-            $efectivoEsperado = $totales['efectivo'];
-            $pagosProveedores = $gastos['pago_proveedor'];
-            $gastosOperativos = $gastos['gasto_operativo'];
-            $retirosEfectivo = $gastos['retiro_efectivo'];
-
-            $diferencia = round(
-                $efectivoEsperado + $depositos - $efectivoReal - $pagosProveedores - $gastosOperativos - $retirosEfectivo,
-                2
-            );
+            $efectivoEsperado = $movimientos['total_ventas_efectivo'];
+            $pagosProveedores = $movimientos['total_pagos_proveedores'];
+            $gastosOperativos = $movimientos['total_gastos_operativos'];
+            $retirosEfectivo = $movimientos['total_retiros_efectivo'];
+            $depositos = $movimientos['total_depositos_efectivo'];
+            $pagosConDeposito = $movimientos['total_pagos_con_deposito'];
+            $diferencia = $this->diferenciaDesdeMovimientos($movimientos, $efectivoReal);
 
             $payload = [
                 ...$this->turnoTotalsFromCortes($cortes),
@@ -832,6 +911,7 @@ class TurnoCajaService
                 'total_gastos_operativos' => $gastosOperativos,
                 'total_retiros_efectivo' => $retirosEfectivo,
                 'total_depositos_efectivo' => $depositos,
+                'total_pagos_con_deposito' => $pagosConDeposito,
                 'efectivo_esperado' => $efectivoEsperado,
                 'efectivo_real' => round($efectivoReal, 2),
                 'efectivo_real_cajera' => $cortes['efectivo_real_cajera'],
@@ -852,9 +932,6 @@ class TurnoCajaService
 
             $turno->fill($payload);
             $turno->save();
-
-            $turno = $turno->refresh();
-            $this->cuentasContablesDetalles->registrarGastosCorteSucursal($turno, $actor);
 
             return $turno->refresh()->load($this->turnoRelations());
         });
@@ -943,7 +1020,8 @@ class TurnoCajaService
      *     total_pagos_proveedores: float,
      *     total_gastos_operativos: float,
      *     total_retiros_efectivo: float,
-     *     total_depositos_efectivo: float
+     *     total_depositos_efectivo: float,
+     *     total_pagos_con_deposito: float
      * }
      */
     private function totalesMovimientos(TurnoCaja $turno): array
@@ -961,7 +1039,45 @@ class TurnoCajaService
             'total_gastos_operativos' => $gastos['gasto_operativo'],
             'total_retiros_efectivo' => $gastos['retiro_efectivo'],
             'total_depositos_efectivo' => $depositos,
+            'total_pagos_con_deposito' => $gastos['pagos_con_deposito'],
         ];
+    }
+
+    /**
+     * Efectivo a cotejar en corte (sin fondo): ventas efectivo + depósitos − gastos.
+     *
+     * @param  array{
+     *     total_ventas_efectivo?: float|int|string,
+     *     total_depositos_efectivo?: float|int|string,
+     *     total_pagos_proveedores?: float|int|string,
+     *     total_gastos_operativos?: float|int|string,
+     *     total_retiros_efectivo?: float|int|string
+     * }  $movimientos
+     */
+    public function efectivoEsperadoAjustado(array $movimientos): float
+    {
+        return round(
+            (float) ($movimientos['total_ventas_efectivo'] ?? 0)
+            + (float) ($movimientos['total_depositos_efectivo'] ?? 0)
+            - (float) ($movimientos['total_pagos_proveedores'] ?? 0)
+            - (float) ($movimientos['total_gastos_operativos'] ?? 0)
+            - (float) ($movimientos['total_retiros_efectivo'] ?? 0),
+            2
+        );
+    }
+
+    /**
+     * @param  array{
+     *     total_ventas_efectivo?: float|int|string,
+     *     total_depositos_efectivo?: float|int|string,
+     *     total_pagos_proveedores?: float|int|string,
+     *     total_gastos_operativos?: float|int|string,
+     *     total_retiros_efectivo?: float|int|string
+     * }  $movimientos
+     */
+    private function diferenciaDesdeMovimientos(array $movimientos, float $contado): float
+    {
+        return round($this->efectivoEsperadoAjustado($movimientos) - $contado, 2);
     }
 
     /**
@@ -975,7 +1091,10 @@ class TurnoCajaService
      *     total_pagos_proveedores: float,
      *     total_gastos_operativos: float,
      *     total_retiros_efectivo: float,
-     *     total_depositos_efectivo: float
+     *     total_depositos_efectivo: float,
+     *     total_pagos_con_deposito: float,
+     *     efectivo_esperado: float,
+     *     efectivo_esperado_ajustado: float
      * }
      */
     private function totalesTramoActual(TurnoCaja $turno): array
@@ -983,7 +1102,7 @@ class TurnoCajaService
         $live = $this->totalesMovimientos($turno);
         $prev = $this->sumCortes($turno);
 
-        return [
+        $tramo = [
             'total_ventas_efectivo' => $this->diffMoney($live['total_ventas_efectivo'], $prev['total_ventas_efectivo']),
             'total_ventas_tarjeta' => $this->diffMoney($live['total_ventas_tarjeta'], $prev['total_ventas_tarjeta']),
             'total_ventas_transferencia' => $this->diffMoney($live['total_ventas_transferencia'], $prev['total_ventas_transferencia']),
@@ -992,7 +1111,12 @@ class TurnoCajaService
             'total_gastos_operativos' => $this->diffMoney($live['total_gastos_operativos'], $prev['total_gastos_operativos']),
             'total_retiros_efectivo' => $this->diffMoney($live['total_retiros_efectivo'], $prev['total_retiros_efectivo']),
             'total_depositos_efectivo' => $this->diffMoney($live['total_depositos_efectivo'], $prev['total_depositos_efectivo']),
+            'total_pagos_con_deposito' => $this->diffMoney($live['total_pagos_con_deposito'], $prev['total_pagos_con_deposito']),
         ];
+        $tramo['efectivo_esperado'] = $this->efectivoEsperadoAjustado($tramo);
+        $tramo['efectivo_esperado_ajustado'] = $tramo['efectivo_esperado'];
+
+        return $tramo;
     }
 
     /**
@@ -1005,6 +1129,7 @@ class TurnoCajaService
      *     total_gastos_operativos: float,
      *     total_retiros_efectivo: float,
      *     total_depositos_efectivo: float,
+     *     total_pagos_con_deposito: float,
      *     efectivo_real_cajera: float
      * }
      */
@@ -1020,6 +1145,7 @@ class TurnoCajaService
                 COALESCE(SUM(total_gastos_operativos), 0) as total_gastos_operativos,
                 COALESCE(SUM(total_retiros_efectivo), 0) as total_retiros_efectivo,
                 COALESCE(SUM(total_depositos_efectivo), 0) as total_depositos_efectivo,
+                COALESCE(SUM(total_pagos_con_deposito), 0) as total_pagos_con_deposito,
                 COALESCE(SUM(efectivo_real_cajera), 0) as efectivo_real_cajera
             ')
             ->first();
@@ -1033,6 +1159,7 @@ class TurnoCajaService
             'total_gastos_operativos' => round((float) ($row?->total_gastos_operativos ?? 0), 2),
             'total_retiros_efectivo' => round((float) ($row?->total_retiros_efectivo ?? 0), 2),
             'total_depositos_efectivo' => round((float) ($row?->total_depositos_efectivo ?? 0), 2),
+            'total_pagos_con_deposito' => round((float) ($row?->total_pagos_con_deposito ?? 0), 2),
             'efectivo_real_cajera' => round((float) ($row?->efectivo_real_cajera ?? 0), 2),
         ];
     }
@@ -1052,6 +1179,7 @@ class TurnoCajaService
             'total_gastos_operativos' => $cortes['total_gastos_operativos'],
             'total_retiros_efectivo' => $cortes['total_retiros_efectivo'],
             'total_depositos_efectivo' => $cortes['total_depositos_efectivo'],
+            'total_pagos_con_deposito' => $cortes['total_pagos_con_deposito'],
         ];
     }
 
@@ -1110,6 +1238,7 @@ class TurnoCajaService
             'total_gastos_operativos' => $tramo['total_gastos_operativos'],
             'total_retiros_efectivo' => $tramo['total_retiros_efectivo'],
             'total_depositos_efectivo' => $tramo['total_depositos_efectivo'],
+            'total_pagos_con_deposito' => $tramo['total_pagos_con_deposito'],
             'efectivo_real_cajera' => round($efectivoRealCajera, 2),
             'tipo_corte' => $tipoCorte,
             'fecha_cierre_cajera' => now(),
@@ -1149,8 +1278,12 @@ class TurnoCajaService
         ]);
     }
 
-    private function corteFieldForGasto(string $tipo): string
+    private function corteFieldForGasto(string $tipo, ?string $origen = null): string
     {
+        if (GastoEnTurno::resolvedOrigen($origen) === GastoEnTurno::ORIGEN_DEPOSITO) {
+            return 'total_pagos_con_deposito';
+        }
+
         return match ($tipo) {
             GastoEnTurno::TIPO_RETIRO_EFECTIVO => 'total_retiros_efectivo',
             GastoEnTurno::TIPO_PAGO_PROVEEDOR => 'total_pagos_proveedores',
@@ -1178,7 +1311,7 @@ class TurnoCajaService
         }
 
         $corte->forceFill([
-            $field => round((float) $corte->{$field} + $monto, 2),
+            $field => round((float) ($corte->{$field} ?? 0) + $monto, 2),
         ])->save();
     }
 
@@ -1190,19 +1323,19 @@ class TurnoCajaService
             'total_pagos_proveedores' => $gastos['pago_proveedor'],
             'total_gastos_operativos' => $gastos['gasto_operativo'],
             'total_retiros_efectivo' => $gastos['retiro_efectivo'],
+            'total_pagos_con_deposito' => $gastos['pagos_con_deposito'],
         ];
 
-        if ($turno->efectivo_real !== null) {
+        $contado = $turno->efectivo_real ?? $turno->efectivo_real_cajera;
+        if ($contado !== null) {
             $depositos = $this->sumDepositos($turno);
-            $payload['diferencia'] = round(
-                (float) $turno->efectivo_esperado
-                + $depositos
-                - (float) $turno->efectivo_real
-                - $gastos['pago_proveedor']
-                - $gastos['gasto_operativo']
-                - $gastos['retiro_efectivo'],
-                2
-            );
+            $payload['diferencia'] = $this->diferenciaDesdeMovimientos([
+                'total_ventas_efectivo' => (float) $turno->efectivo_esperado,
+                'total_depositos_efectivo' => $depositos,
+                'total_pagos_proveedores' => $gastos['pago_proveedor'],
+                'total_gastos_operativos' => $gastos['gasto_operativo'],
+                'total_retiros_efectivo' => $gastos['retiro_efectivo'],
+            ], (float) $contado);
         }
 
         $turno->forceFill($payload)->save();
@@ -1215,17 +1348,16 @@ class TurnoCajaService
             'total_depositos_efectivo' => $depositos,
         ];
 
-        if ($turno->efectivo_real !== null) {
+        $contado = $turno->efectivo_real ?? $turno->efectivo_real_cajera;
+        if ($contado !== null) {
             $gastos = $this->sumGastosByTipo($turno);
-            $payload['diferencia'] = round(
-                (float) $turno->efectivo_esperado
-                + $depositos
-                - (float) $turno->efectivo_real
-                - $gastos['pago_proveedor']
-                - $gastos['gasto_operativo']
-                - $gastos['retiro_efectivo'],
-                2
-            );
+            $payload['diferencia'] = $this->diferenciaDesdeMovimientos([
+                'total_ventas_efectivo' => (float) $turno->efectivo_esperado,
+                'total_depositos_efectivo' => $depositos,
+                'total_pagos_proveedores' => $gastos['pago_proveedor'],
+                'total_gastos_operativos' => $gastos['gasto_operativo'],
+                'total_retiros_efectivo' => $gastos['retiro_efectivo'],
+            ], (float) $contado);
         }
 
         $turno->forceFill($payload)->save();

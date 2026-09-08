@@ -47,7 +47,13 @@ class TurnoCajaCorteResource extends JsonResource
             'total_gastos_operativos' => (string) $this->total_gastos_operativos,
             'total_retiros_efectivo' => (string) $this->total_retiros_efectivo,
             'total_depositos_efectivo' => (string) $this->total_depositos_efectivo,
+            'total_pagos_con_deposito' => $this->total_pagos_con_deposito !== null
+                ? (string) $this->total_pagos_con_deposito
+                : null,
             'efectivo_real_cajera' => (string) $this->efectivo_real_cajera,
+            'efectivo_esperado' => number_format($this->efectivoEsperado(), 2, '.', ''),
+            'efectivo_esperado_ajustado' => number_format($this->efectivoEsperado(), 2, '.', ''),
+            'diferencia' => number_format($this->diferencia(), 2, '.', ''),
             'tipo_corte' => $tipo,
             'tipoCorte' => $tipo,
             'tipo_corte_label' => TurnoCajaCorte::labelForTipo($tipo),

@@ -389,7 +389,7 @@ class TurnoCajaTest extends TestCase
         ]);
     }
 
-    public function test_admin_close_subtracts_turno_gastos_from_sucursal_account(): void
+    public function test_admin_close_does_not_subtract_turno_gastos_from_sucursal_account(): void
     {
         [$user, $negocio, $sucursal, $producto, $staff] = $this->seedCajaContext();
 
@@ -493,18 +493,17 @@ class TurnoCajaTest extends TestCase
         Sanctum::actingAs($encargado);
         $this->postJson("/api/turnos-caja/{$turnoId}/cerrar", [
             'efectivo_real' => 200,
-        ])->assertOk();
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.turno.total_gastos_operativos', '1000.00');
 
         $this->assertDatabaseHas('mae_cuenta_conta_suc', [
             'id' => $subcuenta->id,
-            'saldo' => 400,
+            'saldo' => 1400,
         ]);
-        $this->assertDatabaseHas('mae_cuenta_conta_suc_detalle', [
+        $this->assertDatabaseMissing('mae_cuenta_conta_suc_detalle', [
             'mae_cuenta_conta_suc_id' => $subcuenta->id,
             'tipo_movimiento' => MaeCuentaContaSucDetalle::TIPO_GASTO_OPERATIVO,
-            'monto_movimiento' => 1000,
-            'cuenta_destino_id' => null,
-            'status' => MaeCuentaContaSucDetalle::STATUS_ACEPTADO,
         ]);
         $this->assertDatabaseHas('mae_cuenta_conta_suc', [
             'id' => $maestra->id,
@@ -523,7 +522,7 @@ class TurnoCajaTest extends TestCase
 
         $this->assertDatabaseHas('mae_cuenta_conta_suc', [
             'id' => $subcuenta->id,
-            'saldo' => 400,
+            'saldo' => 1400,
         ]);
     }
 
