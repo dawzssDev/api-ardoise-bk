@@ -48,9 +48,11 @@ class OrdenResource extends JsonResource
             'listo_at' => $this->listo_at?->toIso8601String(),
             'seconds_in_nuevo' => $this->seconds_in_nuevo,
             'seconds_in_preparacion' => $this->seconds_in_preparacion,
+            'seconds_in_caja' => $this->seconds_in_caja,
             'seconds_total_listo' => $this->seconds_total_listo,
             'tiempo_en_nuevo' => $this->seconds_in_nuevo,
             'tiempo_en_preparacion' => $this->seconds_in_preparacion,
+            'tiempo_en_caja' => $this->seconds_in_caja,
             'tiempo_total_listo' => $this->seconds_total_listo,
             'created_by' => $this->whenLoaded('createdBy', fn () => [
                 'id' => $this->createdBy?->id,

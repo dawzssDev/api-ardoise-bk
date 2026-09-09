@@ -77,6 +77,15 @@ class CreateOrdenRequest extends FormRequest
             $merge['status'] = $this->input('estatus');
         }
 
+        if (! $this->exists('seconds_in_caja')) {
+            foreach (['tiempo_en_caja', 'tiempoEnCaja', 'secondsInCaja'] as $alias) {
+                if ($this->exists($alias)) {
+                    $merge['seconds_in_caja'] = $this->input($alias);
+                    break;
+                }
+            }
+        }
+
         if (! $this->exists('detalles')) {
             foreach (['items', 'productos', 'orden_detalle', 'detalle'] as $alias) {
                 if ($this->exists($alias)) {
@@ -153,6 +162,7 @@ class CreateOrdenRequest extends FormRequest
             'pagos.*.payment_type' => ['required_with:pagos', 'string', 'max:30'],
             'pagos.*.amount' => ['required_with:pagos', 'numeric', 'gt:0'],
             'status' => ['sometimes', 'integer', Rule::in(Orden::STATUSES)],
+            'seconds_in_caja' => ['sometimes', 'nullable', 'integer', 'min:0'],
             'detalles' => ['required', 'array', 'min:1'],
             'detalles.*.producto_id' => [
                 'required',

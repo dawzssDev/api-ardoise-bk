@@ -70,6 +70,7 @@ class Orden extends Model
         'listo_at',
         'seconds_in_nuevo',
         'seconds_in_preparacion',
+        'seconds_in_caja',
         'seconds_total_listo',
         'created_by',
         'updated_by',
@@ -87,6 +88,7 @@ class Orden extends Model
             'listo_at' => 'datetime',
             'seconds_in_nuevo' => 'integer',
             'seconds_in_preparacion' => 'integer',
+            'seconds_in_caja' => 'integer',
             'seconds_total_listo' => 'integer',
         ];
     }

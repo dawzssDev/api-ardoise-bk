@@ -27,6 +27,7 @@ class OrdenTest extends TestCase
             'nombre_cliente' => 'Luis',
             'sucursal_id' => $sucursal->id,
             'tipo_pago' => 'efectivo',
+            'seconds_in_caja' => 45,
             'detalles' => [
                 [
                     'producto_id' => $esquite->id,
@@ -49,6 +50,8 @@ class OrdenTest extends TestCase
             ->assertJsonPath('data.orden.tipo_pago', 'efectivo')
             ->assertJsonPath('data.orden.total', '120.00')
             ->assertJsonPath('data.orden.estatus', Orden::STATUS_PAGADA)
+            ->assertJsonPath('data.orden.seconds_in_caja', 45)
+            ->assertJsonPath('data.orden.tiempo_en_caja', 45)
             ->assertJsonPath('data.orden.staff_creo', null)
             ->assertJsonPath('data.orden.detalles.0.nombre_pedido', 'Esquite chico')
             ->assertJsonPath('data.orden.detalles.1.observaciones', 'Sin cebolla');
@@ -58,6 +61,7 @@ class OrdenTest extends TestCase
             'order_number' => 1,
             'customer_name' => 'Luis',
             'total' => 120.00,
+            'seconds_in_caja' => 45,
             'created_by_staff_id' => null,
         ]);
 

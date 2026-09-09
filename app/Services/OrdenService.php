@@ -35,6 +35,7 @@ class OrdenService
      *     payment_type?: string|null,
      *     pagos?: list<array{payment_type: string, amount: float|int|string}>|null,
      *     status?: int,
+     *     seconds_in_caja?: int|null,
      *     detalles: list<array{
      *         producto_id: int,
      *         tipo_venta_id?: int|null,
@@ -86,6 +87,7 @@ class OrdenService
                 'payment_type' => $paymentType,
                 'total' => $total,
                 'status' => $status,
+                'seconds_in_caja' => $data['seconds_in_caja'] ?? null,
                 'created_by_staff_id' => $actor instanceof Staff ? $actor->id : null,
                 'created_by' => $auditId,
                 'updated_by' => $auditId,
