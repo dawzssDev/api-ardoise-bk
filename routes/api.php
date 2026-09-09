@@ -68,6 +68,7 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'subscription.access'])->grou
         Route::put('/user', [UserController::class, 'update']);
 
         Route::put('/negocio', [NegocioController::class, 'update']);
+        Route::post('/negocio/logo', [NegocioController::class, 'uploadLogo']);
 
         Route::post('/payments/intent', [PaymentController::class, 'createIntent']);
         Route::get('/payments', [PaymentController::class, 'index']);

@@ -325,6 +325,7 @@ CREATE TABLE `negocios` (
   `tax_zip` varchar(10) NULL DEFAULT NULL,
   `cfdi_use` varchar(10) NULL DEFAULT NULL,
   `comision_venta_tarjeta` tinyint UNSIGNED NOT NULL DEFAULT 3,
+  `logo` varchar(255) NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -1704,6 +1705,16 @@ ALTER TABLE `empleados`
 
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_09_09_120000_add_fecha_alta_seguro_and_bono_desempeno_to_empleados_table', 1);
+
+================================================================================
+ALTER negocios — logo (archivo en public/NegociosLogos)
+================================================================================
+-- Si `negocios` ya existe sin este campo, ejecuta:
+ALTER TABLE `negocios`
+  ADD COLUMN `logo` varchar(255) NULL DEFAULT NULL AFTER `comision_venta_tarjeta`;
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_09_09_130000_add_logo_to_negocios_table', 1);
 
 ================================================================================
 FIN

@@ -21,6 +21,7 @@ class Negocio extends Model
         'tax_zip',
         'cfdi_use',
         'comision_venta_tarjeta',
+        'logo',
     ];
 
     protected function casts(): array
@@ -124,5 +125,16 @@ class Negocio extends Model
     public function cuentasPorCobrar(): HasMany
     {
         return $this->hasMany(CuentaPorCobrar::class);
+    }
+
+    public function logoUrl(): ?string
+    {
+        if (! $this->logo) {
+            return null;
+        }
+
+        return route('negocios.logo', [
+            'filename' => $this->logo,
+        ]);
     }
 }

@@ -69,6 +69,19 @@ return [
             'report' => false,
         ],
 
+        /*
+         | Logos de negocio en public/NegociosLogos (sin storage:link).
+         | Nombre: {nombre_negocio}_{id}.png|jpg
+         */
+        'negocios_logos' => [
+            'driver' => 'local',
+            'root' => public_path('NegociosLogos'),
+            'url' => rtrim(env('APP_URL', 'http://localhost'), '/').'/NegociosLogos',
+            'visibility' => 'public',
+            'throw' => false,
+            'report' => false,
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),
