@@ -54,11 +54,13 @@ class EmpleadoTest extends TestCase
             'role_id' => $role->id,
             'jefe_inmediato' => 'Luis Pérez',
             'fecha_ingreso' => '2026-08-01',
+            'FechaAltaSeguro' => '2026-08-15',
             'tipo_contrato' => 'indefinido',
             'turno' => 'matutino',
             'estatus' => 'activo',
             'sueldo' => 2500,
             'frecuencia_sueldo' => 'quincenal',
+            'BonoDesempeno' => 350.5,
             'contacto_emergencia_nombre' => 'María Ruiz',
             'parentesco' => 'Madre',
             'contacto_emergencia_telefono' => '6679998877',
@@ -72,7 +74,9 @@ class EmpleadoTest extends TestCase
             ->assertJsonPath('data.empleado.first_name', 'Ana')
             ->assertJsonPath('data.empleado.role.name', 'Cajero')
             ->assertJsonPath('data.empleado.salary', '2500.00')
-            ->assertJsonPath('data.empleado.salary_frequency', 'quincenal');
+            ->assertJsonPath('data.empleado.salary_frequency', 'quincenal')
+            ->assertJsonPath('data.empleado.fecha_alta_seguro', '2026-08-15')
+            ->assertJsonPath('data.empleado.bono_desempeno', '350.50');
 
         $imagePath = $response->json('data.empleado.image');
         $this->assertNotNull($imagePath);
@@ -82,7 +86,62 @@ class EmpleadoTest extends TestCase
             'negocio_id' => $negocio->id,
             'employee_number' => 'EMP-001',
             'role_id' => $role->id,
+            'fecha_alta_seguro' => '2026-08-15',
+            'bono_desempeno' => 350.50,
         ]);
+    }
+
+    public function test_user_can_update_fecha_alta_seguro_and_bono_desempeno(): void
+    {
+        $user = User::factory()->create();
+        $negocio = $user->negocio()->create([
+            'name' => 'Negocio Test',
+            'phone' => '6670000000',
+            'needs_invoice' => false,
+        ]);
+
+        $sucursal = $negocio->sucursales()->create([
+            'type' => Sucursal::TYPE_SUCURSAL,
+            'name' => 'Centro',
+            'is_active' => true,
+        ]);
+
+        $role = $negocio->roles()->create([
+            'name' => 'Cajero',
+            'permissions' => Role::defaultPermissions(),
+            'status' => true,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        $empleado = $negocio->empleados()->create([
+            'sucursal_id' => $sucursal->id,
+            'role_id' => $role->id,
+            'first_name' => 'Ana',
+            'paternal_surname' => 'Ruiz',
+            'employee_number' => 'EMP-020',
+            'status' => 'activo',
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $this->putJson("/api/empleados/{$empleado->id}", [
+            'fecha_alta_seguro' => '2026-09-01',
+            'bono_desempeno' => 1200,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.empleado.fecha_alta_seguro', '2026-09-01')
+            ->assertJsonPath('data.empleado.bono_desempeno', '1200.00');
+
+        $this->putJson("/api/empleados/{$empleado->id}", [
+            'fecha_alta_seguro' => null,
+            'bono_desempeno' => null,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.empleado.fecha_alta_seguro', null)
+            ->assertJsonPath('data.empleado.bono_desempeno', null);
     }
 
     public function test_updating_empleado_sucursal_or_role_syncs_linked_staff(): void

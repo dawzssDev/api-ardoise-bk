@@ -34,11 +34,13 @@ class Empleado extends Model
         'employee_number',
         'supervisor_name',
         'hire_date',
+        'fecha_alta_seguro',
         'contract_type',
         'shift',
         'status',
         'salary',
         'salary_frequency',
+        'bono_desempeno',
         'image',
         'emergency_contact_name',
         'emergency_contact_relationship',
@@ -53,7 +55,9 @@ class Empleado extends Model
         return [
             'birth_date' => 'date',
             'hire_date' => 'date',
+            'fecha_alta_seguro' => 'date',
             'salary' => 'decimal:2',
+            'bono_desempeno' => 'decimal:2',
             'datos_beneficiarios' => 'array',
         ];
     }

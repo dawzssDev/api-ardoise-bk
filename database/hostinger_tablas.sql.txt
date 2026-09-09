@@ -634,11 +634,13 @@ CREATE TABLE `empleados` (
   `employee_number` varchar(50) NOT NULL,
   `supervisor_name` varchar(255) NULL DEFAULT NULL,
   `hire_date` date NULL DEFAULT NULL,
+  `fecha_alta_seguro` date NULL DEFAULT NULL,
   `contract_type` varchar(50) NULL DEFAULT NULL,
   `shift` varchar(50) NULL DEFAULT NULL,
   `status` varchar(30) NOT NULL DEFAULT 'activo',
   `salary` decimal(12,2) NULL DEFAULT NULL,
   `salary_frequency` varchar(20) NULL DEFAULT NULL,
+  `bono_desempeno` decimal(12,2) NULL DEFAULT NULL,
   `image` varchar(255) NULL DEFAULT NULL,
   `emergency_contact_name` varchar(255) NULL DEFAULT NULL,
   `emergency_contact_relationship` varchar(80) NULL DEFAULT NULL,
@@ -1691,6 +1693,17 @@ ALTER TABLE `tb_gastos_en_turno`
 
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_09_08_120000_add_total_pagos_con_deposito_to_turnos_cajas_tables', 1);
+
+================================================================================
+ALTER empleados — fecha_alta_seguro + bono_desempeno
+================================================================================
+-- Si `empleados` ya existe sin estos campos, ejecuta:
+ALTER TABLE `empleados`
+  ADD COLUMN `fecha_alta_seguro` date NULL DEFAULT NULL AFTER `hire_date`,
+  ADD COLUMN `bono_desempeno` decimal(12,2) NULL DEFAULT NULL AFTER `salary_frequency`;
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_09_09_120000_add_fecha_alta_seguro_and_bono_desempeno_to_empleados_table', 1);
 
 ================================================================================
 FIN
