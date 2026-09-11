@@ -24,7 +24,7 @@ class ProductoService
     ) {}
 
     /**
-     * @param  array{name: string, categoria_producto_id: int, price: float|int|string, image?: UploadedFile|null}  $data
+     * @param  array{name: string, categoria_producto_id: int, price: float|int|string, image?: UploadedFile|null, descuento_stock_prod?: array<int, array<string, mixed>>|null, descuento_stock_insum?: array<int, array<string, mixed>>|null}  $data
      */
     public function create(Negocio $negocio, User|Staff $user, array $data): Producto
     {
@@ -43,6 +43,8 @@ class ProductoService
             'name' => $data['name'],
             'price' => $data['price'],
             'image' => $imagePath,
+            'descuento_stock_prod' => $data['descuento_stock_prod'] ?? null,
+            'descuento_stock_insum' => $data['descuento_stock_insum'] ?? null,
             'status' => Producto::STATUS_ACTIVO,
             'created_by' => $auditId,
             'updated_by' => $auditId,

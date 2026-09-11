@@ -453,6 +453,8 @@ CREATE TABLE `categoria_productos` (
 --   usercreacion       → created_by
 --   fechaupdate        → updated_at
 --   userupdate         → updated_by
+--   descuentoStockProd → descuento_stock_prod  (JSON lista: [{id, Producto, cantidad}])
+--   descuentoStockInsum→ descuento_stock_insum (JSON lista: [{id, Insumo, cantidad}])
 -- status: 1 = activo, 0 = inactivo (baja lógica; DELETE pone status = 0)
 CREATE TABLE `productos` (
   `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -461,6 +463,8 @@ CREATE TABLE `productos` (
   `name` varchar(255) NOT NULL,
   `price` decimal(12,2) NOT NULL,
   `image` varchar(255) NULL DEFAULT NULL,
+  `descuento_stock_prod` json NULL DEFAULT NULL,
+  `descuento_stock_insum` json NULL DEFAULT NULL,
   `status` tinyint UNSIGNED NOT NULL DEFAULT 1,
   `created_by` bigint UNSIGNED NOT NULL,
   `updated_by` bigint UNSIGNED NULL DEFAULT NULL,
@@ -1737,6 +1741,20 @@ ALTER TABLE `insumos`
 
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_09_11_100000_add_unidad_medida_to_insumos_table', 1);
+
+================================================================================
+ALTER productos — descuento_stock_prod / descuento_stock_insum (JSON nulleable)
+================================================================================
+-- Receta de descuento de stock al vender:
+--   descuento_stock_prod  → lista [{id, Producto, cantidad}]
+--   descuento_stock_insum → lista [{id, Insumo, cantidad}]
+-- Si `productos` ya existe sin estos campos, ejecuta:
+ALTER TABLE `productos`
+  ADD COLUMN `descuento_stock_prod` json NULL DEFAULT NULL AFTER `image`,
+  ADD COLUMN `descuento_stock_insum` json NULL DEFAULT NULL AFTER `descuento_stock_prod`;
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_09_11_110000_add_descuento_stock_to_productos_table', 1);
 
 ================================================================================
 FIN

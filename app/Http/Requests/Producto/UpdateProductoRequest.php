@@ -7,6 +7,8 @@ use Illuminate\Validation\Rule;
 
 class UpdateProductoRequest extends FormRequest
 {
+    use PreparesDescuentoStockFields;
+
     public function authorize(): bool
     {
         return true;
@@ -14,7 +16,7 @@ class UpdateProductoRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
-        $merge = [];
+        $merge = $this->mergeDescuentoStockAliases();
 
         if (! $this->exists('name') && $this->exists('nombre')) {
             $merge['name'] = $this->input('nombre');
@@ -73,6 +75,7 @@ class UpdateProductoRequest extends FormRequest
             ],
             'price' => ['sometimes', 'required', 'numeric', 'min:0'],
             'image' => ['sometimes', 'nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+            ...$this->descuentoStockRules(),
         ];
     }
 
@@ -93,6 +96,7 @@ class UpdateProductoRequest extends FormRequest
             'image.image' => 'El archivo debe ser una imagen.',
             'image.mimes' => 'La imagen debe ser jpg, jpeg, png o webp.',
             'image.max' => 'La imagen no puede superar 2 MB.',
+            ...$this->descuentoStockMessages(),
         ];
     }
 }
