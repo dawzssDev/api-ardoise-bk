@@ -25,6 +25,7 @@ class OrdenService
 
     public function __construct(
         private readonly TurnoCajaService $turnosCaja,
+        private readonly DescuentoStockVentaService $descuentoStockVenta,
     ) {}
 
     /**
@@ -119,6 +120,11 @@ class OrdenService
 
             $this->persistDetalles($negocio, $orden, $lineRows, $turno, $sucursalId);
 
+            // Stock se descuenta solo al cobrar. Si no hay receta, no toca inventario.
+            if (! $isPendientePago) {
+                $this->descuentoStockVenta->consumirPorVenta($negocio, $sucursalId, $lineRows, $auditId);
+            }
+
             // Solo cobros con monto real de caja generan venta (excluye diferidos del total).
             if (! $isPendientePago && $total > 0 && in_array($status, [
                 Orden::STATUS_PAGADA,
@@ -195,6 +201,9 @@ class OrdenService
             $negocio = $orden->negocio;
             $this->recalcOrdenTotal($orden);
             $total = round((float) $orden->total, 2);
+            $auditId = $this->auditUserId($actor, $negocio);
+
+            $this->descuentoStockVenta->consumirPorOrden($orden, $negocio, $auditId);
             $pagos = $this->resolvePagosForCreate($data, $total);
             $paymentType = count($pagos) === 1
                 ? $pagos[0]['payment_type']
@@ -220,7 +229,7 @@ class OrdenService
             if (array_key_exists('seconds_in_caja', $data)) {
                 $orden->seconds_in_caja = $data['seconds_in_caja'];
             }
-            $orden->updated_by = $this->auditUserId($actor, $negocio);
+            $orden->updated_by = $auditId;
             $orden->save();
 
             if ($total > 0) {

@@ -936,6 +936,211 @@ class OrdenTest extends TestCase
             ->assertJsonPath('message', 'No tienes permiso para registrar órdenes en mesa.');
     }
 
+    public function test_paid_orden_without_descuento_stock_does_not_touch_stock(): void
+    {
+        [$user, $negocio, $sucursal, $esquite] = $this->seedPosCatalog();
+
+        $stock = $negocio->stockProductos()->create([
+            'sucursal_id' => $sucursal->id,
+            'producto_id' => $esquite->id,
+            'stock_fisico' => 8,
+            'stock_minimo' => 1,
+            'is_active' => true,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        Sanctum::actingAs($user);
+        $this->abrirCaja($sucursal->id, 50);
+
+        $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Mostrador',
+            'sucursal_id' => $sucursal->id,
+            'tipo_pago' => 'efectivo',
+            'detalles' => [
+                ['producto_id' => $esquite->id, 'cantidad' => 2],
+            ],
+        ])->assertCreated();
+
+        $this->assertSame('8.000', $stock->fresh()->stock_fisico);
+    }
+
+    public function test_paid_orden_with_descuento_stock_deducts_producto_and_insumo(): void
+    {
+        [$user, $negocio, $sucursal, $tostiesquites, $tostitos, $insumoEsquite] = $this->seedTostiesquitesCatalog();
+
+        Sanctum::actingAs($user);
+        $this->abrirCaja($sucursal->id, 50);
+
+        $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Mostrador',
+            'sucursal_id' => $sucursal->id,
+            'tipo_pago' => 'efectivo',
+            'detalles' => [
+                ['producto_id' => $tostiesquites->id, 'cantidad' => 2],
+            ],
+        ])->assertCreated();
+
+        $this->assertDatabaseHas('stock_productos', [
+            'sucursal_id' => $sucursal->id,
+            'producto_id' => $tostitos->id,
+            'stock_fisico' => 8,
+        ]);
+        $this->assertDatabaseHas('stock_insumos', [
+            'sucursal_id' => $sucursal->id,
+            'insumo_id' => $insumoEsquite->id,
+            'stock_fisico' => 0,
+        ]);
+        $this->assertDatabaseHas('stock_productos', [
+            'sucursal_id' => $sucursal->id,
+            'producto_id' => $tostiesquites->id,
+            'stock_fisico' => 99,
+        ]);
+    }
+
+    public function test_cannot_charge_paid_orden_when_insumo_stock_is_insufficient(): void
+    {
+        [$user, , $sucursal, $tostiesquites, $tostitos, $insumoEsquite] = $this->seedTostiesquitesCatalog(
+            stockProducto: 10,
+            stockInsumo: 500,
+        );
+
+        Sanctum::actingAs($user);
+        $this->abrirCaja($sucursal->id, 50);
+
+        $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Mostrador',
+            'sucursal_id' => $sucursal->id,
+            'tipo_pago' => 'efectivo',
+            'detalles' => [
+                ['producto_id' => $tostiesquites->id, 'cantidad' => 2],
+            ],
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath(
+                'message',
+                'No hay stock suficiente de insumo Esquite. Disponible: 500.000, requerido: 1000.000.',
+            );
+
+        $this->assertDatabaseCount('ordenes', 0);
+        $this->assertDatabaseHas('stock_productos', [
+            'producto_id' => $tostitos->id,
+            'stock_fisico' => 10,
+        ]);
+        $this->assertDatabaseHas('stock_insumos', [
+            'insumo_id' => $insumoEsquite->id,
+            'stock_fisico' => 500,
+        ]);
+    }
+
+    public function test_cannot_charge_paid_orden_when_producto_stock_is_missing(): void
+    {
+        [$user, $negocio, $sucursal, $tostiesquites] = $this->seedTostiesquitesCatalog();
+        $negocio->stockProductos()->where('sucursal_id', $sucursal->id)->delete();
+
+        Sanctum::actingAs($user);
+        $this->abrirCaja($sucursal->id, 50);
+
+        $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Mostrador',
+            'sucursal_id' => $sucursal->id,
+            'tipo_pago' => 'efectivo',
+            'detalles' => [
+                ['producto_id' => $tostiesquites->id, 'cantidad' => 1],
+            ],
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath(
+                'message',
+                'No hay stock de producto Tostitos en esta sucursal para completar la venta.',
+            );
+
+        $this->assertDatabaseCount('ordenes', 0);
+    }
+
+    public function test_orden_en_mesa_does_not_deduct_stock_until_cobro(): void
+    {
+        [$user, , $sucursal, $tostiesquites, $tostitos, $insumoEsquite] = $this->seedTostiesquitesCatalog();
+
+        Sanctum::actingAs($user);
+        $this->abrirCaja($sucursal->id, 50);
+
+        $ordenId = $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Mesa 8',
+            'sucursal_id' => $sucursal->id,
+            'orden_en_mesa' => true,
+            'detalles' => [
+                ['producto_id' => $tostiesquites->id, 'cantidad' => 1],
+            ],
+        ])->assertCreated()->json('data.orden.id');
+
+        $this->assertDatabaseHas('stock_productos', [
+            'producto_id' => $tostitos->id,
+            'stock_fisico' => 10,
+        ]);
+        $this->assertDatabaseHas('stock_insumos', [
+            'insumo_id' => $insumoEsquite->id,
+            'stock_fisico' => 1000,
+        ]);
+
+        $this->postJson("/api/ordenes/{$ordenId}/cobrar", [
+            'tipo_pago' => 'efectivo',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('stock_productos', [
+            'producto_id' => $tostitos->id,
+            'stock_fisico' => 9,
+        ]);
+        $this->assertDatabaseHas('stock_insumos', [
+            'insumo_id' => $insumoEsquite->id,
+            'stock_fisico' => 500,
+        ]);
+    }
+
+    public function test_cannot_cobrar_mesa_when_stock_is_insufficient(): void
+    {
+        [$user, , $sucursal, $tostiesquites, $tostitos, $insumoEsquite] = $this->seedTostiesquitesCatalog(
+            stockProducto: 10,
+            stockInsumo: 500,
+        );
+
+        Sanctum::actingAs($user);
+        $this->abrirCaja($sucursal->id, 50);
+
+        $ordenId = $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Mesa 9',
+            'sucursal_id' => $sucursal->id,
+            'orden_en_mesa' => true,
+            'detalles' => [
+                ['producto_id' => $tostiesquites->id, 'cantidad' => 2],
+            ],
+        ])->assertCreated()->json('data.orden.id');
+
+        $this->postJson("/api/ordenes/{$ordenId}/cobrar", [
+            'tipo_pago' => 'efectivo',
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath(
+                'message',
+                'No hay stock suficiente de insumo Esquite. Disponible: 500.000, requerido: 1000.000.',
+            );
+
+        $this->assertDatabaseHas('ordenes', [
+            'id' => $ordenId,
+            'status' => Orden::STATUS_PENDIENTE,
+            'payment_type' => null,
+        ]);
+        $this->assertDatabaseCount('orden_pagos', 0);
+        $this->assertDatabaseHas('stock_productos', [
+            'producto_id' => $tostitos->id,
+            'stock_fisico' => 10,
+        ]);
+        $this->assertDatabaseHas('stock_insumos', [
+            'insumo_id' => $insumoEsquite->id,
+            'stock_fisico' => 500,
+        ]);
+    }
+
     private function abrirCaja(?int $sucursalId = null, float $fondo = 0): void
     {
         $payload = ['fondo_inicial' => $fondo];
@@ -985,5 +1190,76 @@ class OrdenTest extends TestCase
         ]);
 
         return [$user, $negocio, $sucursal, $esquite, $ramen];
+    }
+
+    /**
+     * @return array{0: User, 1: Negocio, 2: Sucursal, 3: Producto, 4: Producto, 5: \App\Models\Insumo}
+     */
+    private function seedTostiesquitesCatalog(int|float $stockProducto = 10, int|float $stockInsumo = 1000): array
+    {
+        [$user, $negocio, $sucursal] = $this->seedPosCatalog();
+
+        $categoria = $negocio->categoriaProductos()->firstOrFail();
+        $tostitos = $negocio->productos()->create([
+            'categoria_producto_id' => $categoria->id,
+            'name' => 'Tostitos',
+            'price' => 20,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        $categoriaInsumo = $negocio->categoriaInsumos()->create(['name' => 'Granos']);
+        $insumoEsquite = $negocio->insumos()->create([
+            'categoria_insumo_id' => $categoriaInsumo->id,
+            'name' => 'Esquite',
+            'unidad_medida' => 'g',
+            'status_insumo' => true,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        $tostiesquites = $negocio->productos()->create([
+            'categoria_producto_id' => $categoria->id,
+            'name' => 'Tostiesquites',
+            'price' => 55,
+            'descuento_stock_prod' => [
+                ['id' => $tostitos->id, 'Producto' => 'Tostitos', 'cantidad' => 1],
+            ],
+            'descuento_stock_insum' => [
+                ['id' => $insumoEsquite->id, 'Insumo' => 'Esquite', 'cantidad' => 500],
+            ],
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        $negocio->stockProductos()->create([
+            'sucursal_id' => $sucursal->id,
+            'producto_id' => $tostitos->id,
+            'stock_fisico' => $stockProducto,
+            'stock_minimo' => 1,
+            'is_active' => true,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+        $negocio->stockProductos()->create([
+            'sucursal_id' => $sucursal->id,
+            'producto_id' => $tostiesquites->id,
+            'stock_fisico' => 99,
+            'stock_minimo' => 1,
+            'is_active' => true,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+        $negocio->stockInsumos()->create([
+            'sucursal_id' => $sucursal->id,
+            'insumo_id' => $insumoEsquite->id,
+            'stock_fisico' => $stockInsumo,
+            'stock_minimo' => 100,
+            'is_active' => true,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        return [$user, $negocio, $sucursal, $tostiesquites, $tostitos, $insumoEsquite];
     }
 }
