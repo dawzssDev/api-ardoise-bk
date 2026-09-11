@@ -49,6 +49,8 @@ class RoleTest extends TestCase
             ->assertJsonPath('data.role.permissions.stock_products', false)
             ->assertJsonPath('data.role.permissions.ventaDirecta', false)
             ->assertJsonPath('data.role.permissions.levantarOrden', false)
+            ->assertJsonPath('data.role.permissions.ordenEnMesa', false)
+            ->assertJsonPath('data.role.permissions.mesas', false)
             ->assertJsonPath('data.role.permissions.cuentasContables', false)
             ->assertJsonPath('data.role.status', true);
 
@@ -88,6 +90,8 @@ class RoleTest extends TestCase
         $permissions['stock_products'] = true;
         $permissions['ventaDirecta'] = true;
         $permissions['levantarOrden'] = true;
+        $permissions['ordenEnMesa'] = true;
+        $permissions['mesas'] = true;
         $permissions['cuentasContables'] = true;
 
         $response = $this->putJson("/api/roles/{$role->id}", [
@@ -104,6 +108,8 @@ class RoleTest extends TestCase
             ->assertJsonPath('data.role.permissions.stock_products', true)
             ->assertJsonPath('data.role.permissions.ventaDirecta', true)
             ->assertJsonPath('data.role.permissions.levantarOrden', true)
+            ->assertJsonPath('data.role.permissions.ordenEnMesa', true)
+            ->assertJsonPath('data.role.permissions.mesas', true)
             ->assertJsonPath('data.role.permissions.cuentasContables', true);
     }
 
@@ -184,5 +190,77 @@ class RoleTest extends TestCase
         ])
             ->assertOk()
             ->assertJsonPath('data.role.permissions.corteCajaGerenteAdmo', true);
+    }
+
+    public function test_user_can_set_orden_en_mesa_permission(): void
+    {
+        $user = User::factory()->create();
+        $negocio = $user->negocio()->create([
+            'name' => 'Negocio Test',
+            'phone' => '6670000000',
+            'needs_invoice' => false,
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $permissions = Role::defaultPermissions();
+        $this->assertArrayHasKey('ordenEnMesa', $permissions);
+        $this->assertFalse($permissions['ordenEnMesa']);
+
+        $permissions['ordenEnMesa'] = true;
+
+        $roleId = $this->postJson('/api/roles', [
+            'name' => 'Mesero',
+            'permissions' => $permissions,
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.role.permissions.ordenEnMesa', true)
+            ->json('data.role.id');
+
+        $permissions['ordenEnMesa'] = false;
+        unset($permissions['ordenEnMesa']);
+        $permissions['orden_en_mesa'] = true;
+
+        $this->putJson("/api/roles/{$roleId}", [
+            'permissions' => $permissions,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.role.permissions.ordenEnMesa', true);
+    }
+
+    public function test_user_can_set_mesas_permission(): void
+    {
+        $user = User::factory()->create();
+        $user->negocio()->create([
+            'name' => 'Negocio Test',
+            'phone' => '6670000000',
+            'needs_invoice' => false,
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $permissions = Role::defaultPermissions();
+        $this->assertArrayHasKey('mesas', $permissions);
+        $this->assertFalse($permissions['mesas']);
+
+        $permissions['mesas'] = true;
+
+        $roleId = $this->postJson('/api/roles', [
+            'name' => 'Capitan de mesas',
+            'permissions' => $permissions,
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.role.permissions.mesas', true)
+            ->json('data.role.id');
+
+        $permissions['mesas'] = false;
+        unset($permissions['mesas']);
+        $permissions['mesa'] = true;
+
+        $this->putJson("/api/roles/{$roleId}", [
+            'permissions' => $permissions,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.role.permissions.mesas', true);
     }
 }

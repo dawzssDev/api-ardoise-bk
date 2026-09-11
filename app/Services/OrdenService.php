@@ -8,7 +8,9 @@ use App\Models\Orden;
 use App\Models\OrdenDetalle;
 use App\Models\Producto;
 use App\Models\Staff;
+use App\Models\Sucursal;
 use App\Models\TipoVenta;
+use App\Models\TurnoCaja;
 use App\Models\User;
 use App\Services\Concerns\ResolvesNegocioFromActor;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -26,8 +28,10 @@ class OrdenService
     ) {}
 
     /**
-     * Crea orden + detalles (flujo POS "Cobrar").
-     * Requiere turno de caja abierto; registra la venta en tb_ventas.
+     * Crea orden + detalles.
+     *
+     * - POS "Cobrar": requiere payment_type/pagos, marca pagada y registra venta.
+     * - Orden en mesa: status pendiente, sin pago ni venta; el cobro es posterior.
      *
      * @param  array{
      *     customer_name: string,
@@ -35,6 +39,8 @@ class OrdenService
      *     payment_type?: string|null,
      *     pagos?: list<array{payment_type: string, amount: float|int|string}>|null,
      *     status?: int,
+     *     orden_en_mesa?: bool,
+     *     pendiente_pago?: bool,
      *     seconds_in_caja?: int|null,
      *     detalles: list<array{
      *         producto_id: int,
@@ -57,14 +63,23 @@ class OrdenService
             throw new HttpException(422, 'La sucursal no pertenece a tu negocio.');
         }
 
-        $status = (int) ($data['status'] ?? Orden::STATUS_PAGADA);
+        $isPendientePago = $this->wantsPendientePago($data);
+        $status = $isPendientePago
+            ? Orden::STATUS_PENDIENTE
+            : (int) ($data['status'] ?? Orden::STATUS_PAGADA);
 
         if (! in_array($status, Orden::STATUSES, true)) {
             throw new HttpException(422, 'Estatus de orden inválido.');
         }
 
-        return DB::transaction(function () use ($negocio, $actor, $data, $sucursalId, $status) {
-            $turno = $this->turnosCaja->requireOpenTurnoForSale($negocio, $actor, $sucursalId);
+        if ($isPendientePago) {
+            $this->assertCanOrdenEnMesa($actor);
+        }
+
+        return DB::transaction(function () use ($negocio, $actor, $data, $sucursalId, $status, $isPendientePago) {
+            $turno = $isPendientePago
+                ? $this->turnosCaja->requireOpenTurnoForSucursal($negocio, $sucursalId)
+                : $this->turnosCaja->requireOpenTurnoForSale($negocio, $actor, $sucursalId);
 
             $auditId = $this->auditUserId($actor, $negocio);
             $orderNumber = $this->nextOrderNumber($negocio, $sucursalId);
@@ -75,10 +90,12 @@ class OrdenService
                 ->reject(fn (array $row) => (bool) ($row['diferido'] ?? false))
                 ->sum(fn (array $row) => (float) $row['quantity'] * (float) $row['price']), 2);
 
-            $pagos = $this->resolvePagosForCreate($data, $total);
-            $paymentType = count($pagos) === 1
-                ? $pagos[0]['payment_type']
-                : Orden::PAYMENT_TYPE_MIXTO;
+            $pagos = $isPendientePago ? [] : $this->resolvePagosForCreate($data, $total);
+            $paymentType = $isPendientePago
+                ? null
+                : (count($pagos) === 1
+                    ? $pagos[0]['payment_type']
+                    : Orden::PAYMENT_TYPE_MIXTO);
 
             $orden = $negocio->ordenes()->create([
                 'order_number' => $orderNumber,
@@ -100,29 +117,10 @@ class OrdenService
                 ]);
             }
 
-            $now = now();
-            foreach ($lineRows as $row) {
-                $detalle = $orden->detalles()->create($row);
-
-                if ((bool) ($row['diferido'] ?? false)) {
-                    $lineMonto = round((float) $row['quantity'] * (float) $row['price'], 2);
-
-                    $negocio->cuentasPorCobrar()->create([
-                        'sucursal_id' => $sucursalId,
-                        'empleado_id' => $row['empleado_id'],
-                        'orden_id' => $orden->id,
-                        'orden_detalle_id' => $detalle->id,
-                        'turno_caja_id' => $turno->id,
-                        'concepto' => $detalle->product_name,
-                        'monto' => $lineMonto,
-                        'status' => CuentaPorCobrar::STATUS_PENDIENTE,
-                        'fecha_generado' => $now,
-                    ]);
-                }
-            }
+            $this->persistDetalles($negocio, $orden, $lineRows, $turno, $sucursalId);
 
             // Solo cobros con monto real de caja generan venta (excluye diferidos del total).
-            if ($total > 0 && in_array($status, [
+            if (! $isPendientePago && $total > 0 && in_array($status, [
                 Orden::STATUS_PAGADA,
                 Orden::STATUS_EN_COCINA,
                 Orden::STATUS_LISTA,
@@ -132,6 +130,104 @@ class OrdenService
             }
 
             return $orden->load($this->ordenRelations());
+        });
+    }
+
+    /**
+     * Agrega productos a una orden pendiente de pago (orden en mesa).
+     *
+     * @param  array{detalles: list<array<string, mixed>>}  $data
+     */
+    public function addDetalles(Orden $orden, User|Staff $actor, array $data): Orden
+    {
+        $this->assertCanOperateOrden($actor, $orden);
+        $this->assertCanOrdenEnMesa($actor);
+
+        if ((int) $orden->status === Orden::STATUS_CANCELADA) {
+            throw new HttpException(422, 'No puedes agregar productos a una orden cancelada.');
+        }
+
+        if (! $orden->isPendientePago()) {
+            throw new HttpException(422, 'Solo puedes agregar productos a una orden pendiente de pago.');
+        }
+
+        $detalles = $data['detalles'] ?? [];
+
+        return DB::transaction(function () use ($orden, $actor, $detalles) {
+            $negocio = $orden->negocio;
+            $sucursalId = (int) $orden->sucursal_id;
+            $turno = $this->turnosCaja->requireOpenTurnoForSucursal($negocio, $sucursalId);
+            $lineRows = $this->buildDetalleRows($negocio, $detalles, $sucursalId);
+
+            $this->persistDetalles($negocio, $orden, $lineRows, $turno, $sucursalId);
+
+            $orden->updated_by = $this->auditUserId($actor, $negocio);
+            $this->recalcOrdenTotal($orden);
+            $orden->save();
+
+            return $orden->refresh()->load($this->ordenRelations());
+        });
+    }
+
+    /**
+     * Cobra una orden en mesa (cuando el cliente solicita la cuenta).
+     * Registra pagos + venta del turno; no crea columnas nuevas.
+     *
+     * @param  array{
+     *     payment_type?: string|null,
+     *     pagos?: list<array{payment_type: string, amount: float|int|string}>|null,
+     *     seconds_in_caja?: int|null
+     * }  $data
+     */
+    public function cobrar(Orden $orden, User|Staff $actor, array $data): Orden
+    {
+        $this->assertCanOperateOrden($actor, $orden);
+
+        if ((int) $orden->status === Orden::STATUS_CANCELADA) {
+            throw new HttpException(422, 'No puedes cobrar una orden cancelada.');
+        }
+
+        if (! $orden->isPendientePago()) {
+            throw new HttpException(422, 'Esta orden ya tiene un pago registrado.');
+        }
+
+        return DB::transaction(function () use ($orden, $actor, $data) {
+            $negocio = $orden->negocio;
+            $this->recalcOrdenTotal($orden);
+            $total = round((float) $orden->total, 2);
+            $pagos = $this->resolvePagosForCreate($data, $total);
+            $paymentType = count($pagos) === 1
+                ? $pagos[0]['payment_type']
+                : Orden::PAYMENT_TYPE_MIXTO;
+
+            $turno = $this->turnosCaja->requireOpenTurnoForSale(
+                $negocio,
+                $actor,
+                (int) $orden->sucursal_id,
+            );
+
+            foreach ($pagos as $pago) {
+                $orden->pagos()->create([
+                    'payment_type' => $pago['payment_type'],
+                    'amount' => $pago['amount'],
+                ]);
+            }
+
+            $orden->payment_type = $paymentType;
+            if ((int) $orden->status === Orden::STATUS_PENDIENTE) {
+                $orden->status = Orden::STATUS_PAGADA;
+            }
+            if (array_key_exists('seconds_in_caja', $data)) {
+                $orden->seconds_in_caja = $data['seconds_in_caja'];
+            }
+            $orden->updated_by = $this->auditUserId($actor, $negocio);
+            $orden->save();
+
+            if ($total > 0) {
+                $this->turnosCaja->registerVentaFromOrden($turno, $orden->load('pagos'), $actor);
+            }
+
+            return $orden->refresh()->load($this->ordenRelations());
         });
     }
 
@@ -172,9 +268,9 @@ class OrdenService
      *
      * @return array{
      *     sucursal: array{id: int, type: string, name: string},
-     *     nuevo: list<\App\Models\Orden>,
-     *     en_preparacion: list<\App\Models\Orden>,
-     *     listo: list<\App\Models\Orden>
+     *     nuevo: list<Orden>,
+     *     en_preparacion: list<Orden>,
+     *     listo: list<Orden>
      * }
      */
     public function kitchenBoard(Negocio $negocio, User|Staff $actor, ?int $sucursalId = null): array
@@ -186,13 +282,14 @@ class OrdenService
             requireForMaestro: true,
         );
 
-        /** @var \App\Models\Sucursal $sucursal */
+        /** @var Sucursal $sucursal */
         $sucursal = $negocio->sucursales()->whereKey($resolvedSucursalId)->firstOrFail();
 
         $ordenes = $negocio->ordenes()
             ->with($this->ordenRelations())
             ->where('sucursal_id', $resolvedSucursalId)
             ->whereIn('status', [
+                Orden::STATUS_PENDIENTE,
                 Orden::STATUS_PAGADA,
                 Orden::STATUS_EN_COCINA,
                 Orden::STATUS_LISTA,
@@ -248,7 +345,7 @@ class OrdenService
             requireForMaestro: true,
         );
 
-        /** @var \App\Models\Sucursal $sucursal */
+        /** @var Sucursal $sucursal */
         $sucursal = $negocio->sucursales()->whereKey($resolvedSucursalId)->firstOrFail();
 
         $ordenes = $negocio->ordenes()
@@ -385,7 +482,7 @@ class OrdenService
             return 'en_preparacion';
         }
 
-        if ((int) $orden->status === Orden::STATUS_PAGADA) {
+        if (in_array((int) $orden->status, [Orden::STATUS_PENDIENTE, Orden::STATUS_PAGADA], true)) {
             $detalles = $orden->relationLoaded('detalles')
                 ? $orden->detalles
                 : $orden->detalles()->get();
@@ -661,6 +758,7 @@ class OrdenService
             }
             // Si llegó a entregada sin pasar por LISTA, cierra tiempos de cocina.
             if ($orden->listo_at === null && in_array($previous, [
+                Orden::STATUS_PENDIENTE,
                 Orden::STATUS_PAGADA,
                 Orden::STATUS_EN_COCINA,
             ], true)) {
@@ -700,7 +798,8 @@ class OrdenService
     {
         if ($detalleStatus === OrdenDetalle::STATUS_EN_PREPARACION) {
             $previous = (int) $orden->status;
-            if ($previous === Orden::STATUS_PAGADA || $orden->preparacion_started_at === null) {
+            if (in_array($previous, [Orden::STATUS_PENDIENTE, Orden::STATUS_PAGADA], true)
+                || $orden->preparacion_started_at === null) {
                 $orden->status = Orden::STATUS_EN_COCINA;
                 $this->applyOrdenKitchenProgress($orden, $actor, $previous, Orden::STATUS_EN_COCINA);
             }
@@ -719,7 +818,7 @@ class OrdenService
         // Primer producto listo sin haber entrado a preparación a nivel orden.
         if ($detalleStatus !== OrdenDetalle::STATUS_CANCELADO
             && $orden->preparacion_started_at === null
-            && (int) $orden->status === Orden::STATUS_PAGADA) {
+            && in_array((int) $orden->status, [Orden::STATUS_PENDIENTE, Orden::STATUS_PAGADA], true)) {
             $previous = (int) $orden->status;
             $orden->status = Orden::STATUS_EN_COCINA;
             $this->applyOrdenKitchenProgress($orden, $actor, $previous, Orden::STATUS_EN_COCINA);
@@ -971,5 +1070,80 @@ class OrdenService
         }
 
         return $rows;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $lineRows
+     */
+    private function persistDetalles(
+        Negocio $negocio,
+        Orden $orden,
+        array $lineRows,
+        TurnoCaja $turno,
+        int $sucursalId,
+    ): void {
+        $now = now();
+
+        foreach ($lineRows as $row) {
+            $detalle = $orden->detalles()->create($row);
+
+            if (! (bool) ($row['diferido'] ?? false)) {
+                continue;
+            }
+
+            $lineMonto = round((float) $row['quantity'] * (float) $row['price'], 2);
+
+            $negocio->cuentasPorCobrar()->create([
+                'sucursal_id' => $sucursalId,
+                'empleado_id' => $row['empleado_id'],
+                'orden_id' => $orden->id,
+                'orden_detalle_id' => $detalle->id,
+                'turno_caja_id' => $turno->id,
+                'concepto' => $detalle->product_name,
+                'monto' => $lineMonto,
+                'status' => CuentaPorCobrar::STATUS_PENDIENTE,
+                'fecha_generado' => $now,
+            ]);
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function wantsPendientePago(array $data): bool
+    {
+        if (! empty($data['orden_en_mesa']) || ! empty($data['pendiente_pago'])) {
+            return true;
+        }
+
+        if ((int) ($data['status'] ?? 0) === Orden::STATUS_PENDIENTE) {
+            return true;
+        }
+
+        $hasPaymentType = filled($data['payment_type'] ?? null);
+        $pagos = $data['pagos'] ?? null;
+        $hasPagos = is_array($pagos) && $pagos !== [];
+
+        return ! $hasPaymentType && ! $hasPagos;
+    }
+
+    private function assertCanOrdenEnMesa(User|Staff $actor): void
+    {
+        if ($actor instanceof User) {
+            return;
+        }
+
+        $actor->loadMissing('role');
+
+        if (! $actor->role?->allows('ordenEnMesa')) {
+            throw new HttpException(403, 'No tienes permiso para registrar órdenes en mesa.');
+        }
+    }
+
+    private function assertCanOperateOrden(User|Staff $actor, Orden $orden): void
+    {
+        if ($actor instanceof Staff && (int) $actor->sucursal_id !== (int) $orden->sucursal_id) {
+            throw new HttpException(403, 'No puedes operar órdenes de otra sucursal.');
+        }
     }
 }

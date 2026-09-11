@@ -12,6 +12,7 @@ class Role extends Model
 
     public const PERMISSION_KEYS = [
         'pos',
+        'mesas',
         'kitchen',
         'branch_inventory',
         'central_warehouse',
@@ -34,6 +35,7 @@ class Role extends Model
         'corteCajaCajera',
         'ventaDirecta',
         'levantarOrden',
+        'ordenEnMesa',
         'corteCajaGerenteAdmo',
         'cuentasContables',
         'cancelarDetalles',
@@ -61,6 +63,8 @@ class Role extends Model
         'cuentasPorCobrar' => 'cuentas_por_cobrar',
         'venta_directa' => 'ventaDirecta',
         'levantar_orden' => 'levantarOrden',
+        'orden_en_mesa' => 'ordenEnMesa',
+        'mesa' => 'mesas',
         'stock_productos' => 'stock_products',
         'cuentas_contables' => 'cuentasContables',
         'cancelar_detalles' => 'cancelarDetalles',
@@ -123,6 +127,7 @@ class Role extends Model
 
             if (! array_key_exists($canonical, $permissions)) {
                 $permissions[$canonical] = $permissions[$alias];
+
                 continue;
             }
 

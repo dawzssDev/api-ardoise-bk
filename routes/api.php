@@ -237,9 +237,12 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'subscription.access'])->grou
     Route::get('/ordenes/cocina', [OrdenController::class, 'cocina']);
     Route::get('/ordenes/hoy', [OrdenController::class, 'hoy']);
     Route::get('/ordenes/por-fecha', [OrdenController::class, 'porFecha']);
+    Route::get('/ordenes/turno', [OrdenController::class, 'turno']);
     Route::post('/ordenes', [OrdenController::class, 'store']);
     Route::get('/ordenes/{id}', [OrdenController::class, 'show'])->whereNumber('id');
     Route::put('/ordenes/{id}/status', [OrdenController::class, 'setStatus'])->whereNumber('id');
+    Route::post('/ordenes/{id}/cobrar', [OrdenController::class, 'cobrar'])->whereNumber('id');
+    Route::post('/ordenes/{id}/detalles', [OrdenController::class, 'addDetalles'])->whereNumber('id');
     Route::post('/ordenes/{id}/detalles/cancelar', [OrdenController::class, 'cancelarDetalles'])->whereNumber('id');
     Route::put('/ordenes/{id}/detalles/{detalleId}/status', [OrdenController::class, 'setDetalleStatus'])
         ->whereNumber('id')

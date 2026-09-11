@@ -3,16 +3,22 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Orden\AgregarOrdenDetallesRequest;
 use App\Http\Requests\Orden\CancelarOrdenDetallesRequest;
+use App\Http\Requests\Orden\CobrarOrdenRequest;
 use App\Http\Requests\Orden\CreateOrdenRequest;
 use App\Http\Requests\Orden\ListOrdenesPorFechaRequest;
+use App\Http\Requests\Orden\ListOrdenesTurnoRequest;
 use App\Http\Requests\Orden\UpdateOrdenDetalleEntregaRequest;
 use App\Http\Requests\Orden\UpdateOrdenDetalleStatusRequest;
 use App\Http\Requests\Orden\UpdateOrdenStatusRequest;
 use App\Http\Resources\OrdenDetalleResource;
 use App\Http\Resources\OrdenResource;
+use App\Http\Resources\TurnoCajaResource;
+use App\Models\Orden;
 use App\Services\OrdenPorFechaService;
 use App\Services\OrdenService;
+use App\Services\OrdenTurnoService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -22,6 +28,7 @@ class OrdenController extends Controller
     public function __construct(
         private readonly OrdenService $ordenes,
         private readonly OrdenPorFechaService $ordenesPorFecha,
+        private readonly OrdenTurnoService $ordenesTurno,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -137,6 +144,40 @@ class OrdenController extends Controller
     }
 
     /**
+     * Órdenes del turno de caja: pendientes por pagar, pagadas y canceladas.
+     * Query: ?sucursal_id= (maestro) y/o ?turno_id=
+     */
+    public function turno(ListOrdenesTurnoRequest $request): JsonResponse
+    {
+        try {
+            $negocio = $this->ordenes->negocioForUser($request->user());
+            $payload = $this->ordenesTurno->list(
+                $negocio,
+                $request->user(),
+                $request->filled('sucursal_id') ? (int) $request->validated('sucursal_id') : null,
+                $request->filled('turno_id') ? (int) $request->validated('turno_id') : null,
+            );
+        } catch (HttpException $e) {
+            return $this->errorResponse($e);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'ok',
+            'data' => [
+                'turno' => (new TurnoCajaResource($payload['turno']))->resolve(),
+                'sucursal' => $payload['sucursal'],
+                'ordenes' => OrdenResource::collection($payload['ordenes'])->resolve(),
+                'pendientes_por_pagar' => OrdenResource::collection($payload['pendientes_por_pagar'])->resolve(),
+                'pagadas' => OrdenResource::collection($payload['pagadas'])->resolve(),
+                'canceladas' => OrdenResource::collection($payload['canceladas'])->resolve(),
+                'resumen' => $payload['resumen'],
+            ],
+            'errors' => null,
+        ]);
+    }
+
+    /**
      * Cobrar / crear orden con sus detalles.
      */
     public function store(CreateOrdenRequest $request): JsonResponse
@@ -156,6 +197,52 @@ class OrdenController extends Controller
             ],
             'errors' => null,
         ], 201);
+    }
+
+    /**
+     * Agregar productos a una orden pendiente de pago (orden en mesa).
+     */
+    public function addDetalles(AgregarOrdenDetallesRequest $request, int $id): JsonResponse
+    {
+        try {
+            $negocio = $this->ordenes->negocioForUser($request->user());
+            $orden = $this->ordenes->findForNegocio($negocio, $id);
+            $orden = $this->ordenes->addDetalles($orden, $request->user(), $request->validated());
+        } catch (HttpException $e) {
+            return $this->errorResponse($e);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Productos agregados a la orden.',
+            'data' => [
+                'orden' => (new OrdenResource($orden))->resolve(),
+            ],
+            'errors' => null,
+        ]);
+    }
+
+    /**
+     * Cobrar una orden pendiente (cuando el cliente solicita la cuenta).
+     */
+    public function cobrar(CobrarOrdenRequest $request, int $id): JsonResponse
+    {
+        try {
+            $negocio = $this->ordenes->negocioForUser($request->user());
+            $orden = $this->ordenes->findForNegocio($negocio, $id);
+            $orden = $this->ordenes->cobrar($orden, $request->user(), $request->validated());
+        } catch (HttpException $e) {
+            return $this->errorResponse($e);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Orden cobrada correctamente.',
+            'data' => [
+                'orden' => (new OrdenResource($orden))->resolve(),
+            ],
+            'errors' => null,
+        ]);
     }
 
     public function show(Request $request, int $id): JsonResponse
@@ -305,10 +392,10 @@ class OrdenController extends Controller
      * @param  array{
      *     fecha: string,
      *     sucursal: array{id: int, type: string, name: string},
-     *     ordenes: list<\App\Models\Orden>,
-     *     nuevo: list<\App\Models\Orden>,
-     *     en_preparacion: list<\App\Models\Orden>,
-     *     listo: list<\App\Models\Orden>
+     *     ordenes: list<Orden>,
+     *     nuevo: list<Orden>,
+     *     en_preparacion: list<Orden>,
+     *     listo: list<Orden>
      * }  $payload
      */
     private function ordenesPorFechaResponse(array $payload): JsonResponse

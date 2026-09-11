@@ -77,6 +77,11 @@ class CreateOrdenRequest extends FormRequest
             $merge['status'] = $this->input('estatus');
         }
 
+        if ($this->isOrdenEnMesaPayload($merge)) {
+            $merge['status'] = Orden::STATUS_PENDIENTE;
+            $merge['orden_en_mesa'] = true;
+        }
+
         if (! $this->exists('seconds_in_caja')) {
             foreach (['tiempo_en_caja', 'tiempoEnCaja', 'secondsInCaja'] as $alias) {
                 if ($this->exists($alias)) {
@@ -156,12 +161,13 @@ class CreateOrdenRequest extends FormRequest
                     fn ($q) => $q->where('negocio_id', $negocioId)
                 ),
             ],
-            // Un solo método (legacy) o cobro combinado con pagos[].
-            'payment_type' => ['required_without:pagos', 'nullable', 'string', 'max:30'],
-            'pagos' => ['required_without:payment_type', 'nullable', 'array', 'min:1'],
+            // POS cobra: tipo_pago o pagos[]. Orden en mesa (status=1): sin pago.
+            'payment_type' => ['nullable', 'string', 'max:30'],
+            'pagos' => ['nullable', 'array', 'min:1'],
             'pagos.*.payment_type' => ['required_with:pagos', 'string', 'max:30'],
             'pagos.*.amount' => ['required_with:pagos', 'numeric', 'gt:0'],
             'status' => ['sometimes', 'integer', Rule::in(Orden::STATUSES)],
+            'orden_en_mesa' => ['sometimes', 'boolean'],
             'seconds_in_caja' => ['sometimes', 'nullable', 'integer', 'min:0'],
             'detalles' => ['required', 'array', 'min:1'],
             'detalles.*.producto_id' => [
@@ -197,14 +203,44 @@ class CreateOrdenRequest extends FormRequest
     }
 
     /**
+     * POS "Orden en mesa" / Enviar a cocina: sin tipo_pago ni pagos.
+     *
+     * @param  array<string, mixed>  $merge
+     */
+    private function isOrdenEnMesaPayload(array $merge): bool
+    {
+        foreach (['orden_en_mesa', 'ordenEnMesa', 'pendiente_pago', 'pendientePago', 'enviar_a_cocina', 'enviarACocina'] as $alias) {
+            if ($this->exists($alias) && $this->boolean($alias)) {
+                return true;
+            }
+        }
+
+        foreach (['tipo', 'modo', 'origen', 'flujo', 'tipo_orden', 'tipoOrden', 'tipo_pedido'] as $alias) {
+            $value = strtolower(trim((string) $this->input($alias, '')));
+            if (in_array($value, ['mesa', 'orden_en_mesa', 'ordenenmesa', 'orden en mesa'], true)) {
+                return true;
+            }
+        }
+
+        $status = (int) ($merge['status'] ?? $this->input('status') ?? 0);
+        if ($status === Orden::STATUS_PENDIENTE) {
+            return true;
+        }
+
+        $paymentType = $merge['payment_type'] ?? $this->input('payment_type');
+        $pagos = $merge['pagos'] ?? $this->input('pagos');
+        $hasPagos = is_array($pagos) && $pagos !== [];
+
+        return ! filled($paymentType) && ! $hasPagos;
+    }
+
+    /**
      * @return array<string, string>
      */
     public function messages(): array
     {
         return [
             'customer_name.required' => 'El nombre del cliente/pedido es obligatorio.',
-            'payment_type.required_without' => 'Envía tipo_pago o el arreglo pagos.',
-            'pagos.required_without' => 'Envía tipo_pago o el arreglo pagos.',
             'pagos.min' => 'Debes enviar al menos una forma de pago.',
             'pagos.*.payment_type.required_with' => 'Cada pago debe incluir tipo_pago.',
             'pagos.*.amount.required_with' => 'Cada pago debe incluir monto.',

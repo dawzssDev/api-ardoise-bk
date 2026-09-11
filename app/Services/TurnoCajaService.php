@@ -202,6 +202,35 @@ class TurnoCajaService
     }
 
     /**
+     * Turno abierto de la sucursal (cualquier cajera).
+     * Sirve para órdenes en mesa que no las registra quien tiene la caja.
+     */
+    public function openTurnoForSucursal(Negocio $negocio, int $sucursalId): ?TurnoCaja
+    {
+        return TurnoCaja::query()
+            ->where('negocio_id', $negocio->id)
+            ->where('sucursal_id', $sucursalId)
+            ->where('status', TurnoCaja::STATUS_ABIERTO)
+            ->with($this->turnoRelations())
+            ->latest('id')
+            ->first();
+    }
+
+    public function requireOpenTurnoForSucursal(Negocio $negocio, int $sucursalId): TurnoCaja
+    {
+        $turno = $this->openTurnoForSucursal($negocio, $sucursalId);
+
+        if (! $turno) {
+            throw new HttpException(
+                422,
+                'Debes iniciar turno de caja antes de registrar órdenes de mesa.',
+            );
+        }
+
+        return $turno;
+    }
+
+    /**
      * Turno abierto obligatorio para cobrar (POS).
      */
     public function requireOpenTurnoForSale(

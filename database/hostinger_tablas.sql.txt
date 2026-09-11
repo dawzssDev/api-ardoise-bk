@@ -738,7 +738,7 @@ CREATE TABLE `staff` (
 --   NombreCliente→ customer_name
 --   EmpresaID    → negocio_id
 --   SucursalID   → sucursal_id
---   TipoPAGO     → payment_type (credito|transferencia|efectivo)
+--   TipoPAGO     → payment_type (credito|tarjeta|transferencia|efectivo|mixto; NULL = orden en mesa pendiente de cobro)
 --   TotalPago    → total
 --   Estatus      → status (1=pendiente, 2=pagada, 3=cancelada, 4=en_cocina, 5=lista, 6=entregada)
 --   staff que creó / avanzó / finalizó → created_by_staff_id / advanced_by_staff_id / finished_by_staff_id
@@ -749,7 +749,7 @@ CREATE TABLE `ordenes` (
   `negocio_id` bigint UNSIGNED NOT NULL,
   `sucursal_id` bigint UNSIGNED NOT NULL,
   `customer_name` varchar(255) NOT NULL,
-  `payment_type` varchar(30) NOT NULL,
+  `payment_type` varchar(30) NULL DEFAULT NULL,
   `total` decimal(10,2) NOT NULL DEFAULT 0.00,
   `status` tinyint UNSIGNED NOT NULL DEFAULT 1,
   `created_by_staff_id` bigint UNSIGNED NULL DEFAULT NULL,
@@ -1076,6 +1076,11 @@ Si el correlativo aún es por negocio, pásalo a por sucursal:
 ALTER TABLE `ordenes`
   DROP INDEX `ordenes_negocio_id_order_number_unique`,
   ADD UNIQUE KEY `ordenes_sucursal_id_order_number_unique` (`sucursal_id`, `order_number`);
+
+Si `ordenes` ya existe con `payment_type` NOT NULL (orden en mesa pendiente de cobro), ejecuta:
+
+ALTER TABLE `ordenes`
+  MODIFY `payment_type` varchar(30) NULL DEFAULT NULL;
 
 ================================================================================
 TIPOS DE VENTA (catálogo + descuento por línea de orden)

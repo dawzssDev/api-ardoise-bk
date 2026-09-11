@@ -33,6 +33,8 @@ class OrdenResource extends JsonResource
             'pagos_mixtos' => $this->pagoMixtoPayload(),
             'total_pago' => (string) $this->total,
             'total' => (string) $this->total,
+            'pendiente_pago' => $this->isPendientePago(),
+            'pendiente_por_pagar' => $this->isPendientePago(),
             'estatus' => $this->status,
             'status' => $this->status,
             'detalles' => OrdenDetalleResource::collection($this->whenLoaded('detalles')),

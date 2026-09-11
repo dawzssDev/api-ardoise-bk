@@ -15,7 +15,7 @@ class Orden extends Model
     /** Orden cobrada con 2+ métodos (detalle en orden_pagos). */
     public const PAYMENT_TYPE_MIXTO = 'mixto';
 
-    /** Pendiente de cobro */
+    /** Pendiente de cobro (orden en mesa, sin payment_type ni orden_pagos) */
     public const STATUS_PENDIENTE = 1;
 
     /** Cobrado en POS */
@@ -144,5 +144,15 @@ class Orden extends Model
     public function numeroOrden(): string
     {
         return str_pad((string) $this->order_number, 6, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * Orden de mesa aún sin cobro en caja.
+     * No usa columnas nuevas: se infiere por payment_type nulo.
+     */
+    public function isPendientePago(): bool
+    {
+        return $this->payment_type === null
+            && (int) $this->status !== self::STATUS_CANCELADA;
     }
 }

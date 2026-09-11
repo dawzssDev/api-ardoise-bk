@@ -2,8 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Models\Negocio;
 use App\Models\Orden;
 use App\Models\OrdenDetalle;
+use App\Models\Producto;
 use App\Models\Role;
 use App\Models\Sucursal;
 use App\Models\TipoVenta;
@@ -189,7 +191,7 @@ class OrdenTest extends TestCase
         ]);
 
         $this->assertNotNull(
-            \App\Models\Orden::query()->whereKey($ordenId)->value('seconds_total_listo')
+            Orden::query()->whereKey($ordenId)->value('seconds_total_listo')
         );
     }
 
@@ -432,7 +434,7 @@ class OrdenTest extends TestCase
         ])->assertCreated()->json('data.orden.id');
 
         $ayer = now()->subDay()->toDateString();
-        $ayerId = \App\Models\Orden::query()->findOrFail($hoyId)->replicate();
+        $ayerId = Orden::query()->findOrFail($hoyId)->replicate();
         $ayerId->customer_name = 'Ayer';
         $ayerId->order_number = 999001;
         $ayerId->created_at = now()->subDay()->setTime(12, 0);
@@ -641,6 +643,299 @@ class OrdenTest extends TestCase
             ->assertJsonPath('data.preview.total_ventas', 0);
     }
 
+    public function test_can_create_orden_en_mesa_pending_payment_without_pago(): void
+    {
+        [$user, $negocio, $sucursal, $esquite, $ramen] = $this->seedPosCatalog();
+
+        Sanctum::actingAs($user);
+        $this->abrirCaja($sucursal->id, 100);
+
+        $response = $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Mesa 4',
+            'sucursal_id' => $sucursal->id,
+            'orden_en_mesa' => true,
+            'detalles' => [
+                ['producto_id' => $esquite->id, 'cantidad' => 1],
+                ['producto_id' => $ramen->id, 'cantidad' => 2, 'observaciones' => 'Sin picante'],
+            ],
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.orden.nombre_cliente', 'Mesa 4')
+            ->assertJsonPath('data.orden.estatus', Orden::STATUS_PENDIENTE)
+            ->assertJsonPath('data.orden.tipo_pago', null)
+            ->assertJsonPath('data.orden.pendiente_pago', true)
+            ->assertJsonPath('data.orden.total', '190.00')
+            ->assertJsonPath('data.orden.pagos', [])
+            ->assertJsonPath('data.orden.detalles.1.observaciones', 'Sin picante');
+
+        $ordenId = $response->json('data.orden.id');
+
+        $this->assertDatabaseHas('ordenes', [
+            'id' => $ordenId,
+            'negocio_id' => $negocio->id,
+            'status' => Orden::STATUS_PENDIENTE,
+            'payment_type' => null,
+            'total' => 190.00,
+        ]);
+        $this->assertDatabaseCount('orden_detalles', 2);
+        $this->assertDatabaseCount('orden_pagos', 0);
+        $this->assertDatabaseMissing('tb_ventas', [
+            'orden_id' => $ordenId,
+        ]);
+    }
+
+    public function test_create_without_payment_is_treated_as_orden_en_mesa(): void
+    {
+        [$user, , $sucursal, $esquite] = $this->seedPosCatalog();
+
+        Sanctum::actingAs($user);
+        $this->abrirCaja($sucursal->id, 50);
+
+        $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'MESA 1',
+            'sucursal_id' => $sucursal->id,
+            'detalles' => [
+                ['producto_id' => $esquite->id, 'cantidad' => 2],
+            ],
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.orden.estatus', Orden::STATUS_PENDIENTE)
+            ->assertJsonPath('data.orden.tipo_pago', null)
+            ->assertJsonPath('data.orden.pendiente_pago', true)
+            ->assertJsonPath('data.orden.total', '100.00');
+
+        $this->assertDatabaseCount('orden_pagos', 0);
+        $this->assertDatabaseCount('tb_ventas', 0);
+    }
+
+    public function test_can_add_detalles_to_pendiente_orden(): void
+    {
+        [$user, , $sucursal, $esquite, $ramen] = $this->seedPosCatalog();
+
+        Sanctum::actingAs($user);
+        $this->abrirCaja($sucursal->id, 100);
+
+        $ordenId = $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Mesa 1',
+            'sucursal_id' => $sucursal->id,
+            'estatus' => Orden::STATUS_PENDIENTE,
+            'detalles' => [
+                ['producto_id' => $esquite->id, 'cantidad' => 1],
+            ],
+        ])->assertCreated()->json('data.orden.id');
+
+        $this->postJson("/api/ordenes/{$ordenId}/detalles", [
+            'detalles' => [
+                ['producto_id' => $ramen->id, 'cantidad' => 1],
+            ],
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.orden.total', '120.00')
+            ->assertJsonPath('data.orden.pendiente_pago', true)
+            ->assertJsonPath('data.orden.estatus', Orden::STATUS_PENDIENTE);
+
+        $this->assertDatabaseCount('orden_detalles', 2);
+        $this->assertDatabaseHas('ordenes', [
+            'id' => $ordenId,
+            'total' => 120.00,
+            'payment_type' => null,
+        ]);
+        $this->assertDatabaseMissing('tb_ventas', [
+            'orden_id' => $ordenId,
+        ]);
+    }
+
+    public function test_cannot_add_detalles_to_pagada_orden(): void
+    {
+        [$user, , $sucursal, $esquite, $ramen] = $this->seedPosCatalog();
+
+        Sanctum::actingAs($user);
+        $this->abrirCaja($sucursal->id, 100);
+
+        $ordenId = $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Mostrador',
+            'sucursal_id' => $sucursal->id,
+            'tipo_pago' => 'efectivo',
+            'detalles' => [
+                ['producto_id' => $esquite->id, 'cantidad' => 1],
+            ],
+        ])->assertCreated()->json('data.orden.id');
+
+        $this->postJson("/api/ordenes/{$ordenId}/detalles", [
+            'detalles' => [
+                ['producto_id' => $ramen->id, 'cantidad' => 1],
+            ],
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Solo puedes agregar productos a una orden pendiente de pago.');
+    }
+
+    public function test_turno_lists_pendientes_pagadas_and_canceladas(): void
+    {
+        [$user, , $sucursal, $esquite] = $this->seedPosCatalog();
+
+        Sanctum::actingAs($user);
+        $this->abrirCaja($sucursal->id, 100);
+
+        $pendienteId = $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Mesa pendiente',
+            'sucursal_id' => $sucursal->id,
+            'orden_en_mesa' => true,
+            'detalles' => [
+                ['producto_id' => $esquite->id, 'cantidad' => 1],
+            ],
+        ])->assertCreated()->json('data.orden.id');
+
+        $pagadaId = $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Mostrador pagada',
+            'sucursal_id' => $sucursal->id,
+            'tipo_pago' => 'efectivo',
+            'detalles' => [
+                ['producto_id' => $esquite->id, 'cantidad' => 1],
+            ],
+        ])->assertCreated()->json('data.orden.id');
+
+        $canceladaId = $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Mesa cancelada',
+            'sucursal_id' => $sucursal->id,
+            'orden_en_mesa' => true,
+            'detalles' => [
+                ['producto_id' => $esquite->id, 'cantidad' => 1],
+            ],
+        ])->assertCreated()->json('data.orden.id');
+
+        $this->putJson("/api/ordenes/{$canceladaId}/status", [
+            'estatus' => Orden::STATUS_CANCELADA,
+        ])->assertOk();
+
+        $response = $this->getJson('/api/ordenes/turno?sucursal_id='.$sucursal->id)
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.sucursal.id', $sucursal->id)
+            ->assertJsonPath('data.resumen.pendientes_por_pagar', 1)
+            ->assertJsonPath('data.resumen.pagadas', 1)
+            ->assertJsonPath('data.resumen.canceladas', 1)
+            ->assertJsonPath('data.resumen.total', 3);
+
+        $this->assertSame($pendienteId, $response->json('data.pendientes_por_pagar.0.id'));
+        $this->assertSame($pagadaId, $response->json('data.pagadas.0.id'));
+        $this->assertSame($canceladaId, $response->json('data.canceladas.0.id'));
+    }
+
+    public function test_can_cobrar_pendiente_orden_when_customer_asks_for_bill(): void
+    {
+        [$user, , $sucursal, $esquite, $ramen] = $this->seedPosCatalog();
+
+        Sanctum::actingAs($user);
+        $open = $this->postJson('/api/turnos-caja/abrir', [
+            'sucursal_id' => $sucursal->id,
+            'fondo_inicial' => 100,
+        ])->assertCreated();
+        $turnoId = $open->json('data.turno.id');
+
+        $ordenId = $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Mesa 7',
+            'sucursal_id' => $sucursal->id,
+            'orden_en_mesa' => true,
+            'detalles' => [
+                ['producto_id' => $esquite->id, 'cantidad' => 1],
+            ],
+        ])->assertCreated()->json('data.orden.id');
+
+        $this->postJson("/api/ordenes/{$ordenId}/detalles", [
+            'productos' => [
+                ['producto_id' => $ramen->id, 'cantidad' => 1],
+            ],
+        ])->assertOk();
+
+        $cobro = $this->postJson("/api/ordenes/{$ordenId}/cobrar", [
+            'tipo_pago' => 'efectivo',
+            'tiempo_en_caja' => 30,
+        ]);
+
+        $cobro->assertOk()
+            ->assertJsonPath('data.orden.estatus', Orden::STATUS_PAGADA)
+            ->assertJsonPath('data.orden.tipo_pago', 'efectivo')
+            ->assertJsonPath('data.orden.pendiente_pago', false)
+            ->assertJsonPath('data.orden.total', '120.00')
+            ->assertJsonPath('data.orden.seconds_in_caja', 30);
+
+        $this->assertDatabaseHas('orden_pagos', [
+            'orden_id' => $ordenId,
+            'payment_type' => 'efectivo',
+            'amount' => 120.00,
+        ]);
+        $this->assertDatabaseHas('tb_ventas', [
+            'orden_id' => $ordenId,
+            'turno_caja_id' => $turnoId,
+            'payment_type' => 'efectivo',
+            'total' => 120.00,
+        ]);
+
+        $this->getJson('/api/ordenes/turno?sucursal_id='.$sucursal->id)
+            ->assertOk()
+            ->assertJsonPath('data.resumen.pendientes_por_pagar', 0)
+            ->assertJsonPath('data.resumen.pagadas', 1);
+
+        $this->postJson("/api/ordenes/{$ordenId}/cobrar", [
+            'tipo_pago' => 'efectivo',
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Esta orden ya tiene un pago registrado.');
+    }
+
+    public function test_staff_without_orden_en_mesa_cannot_create_pendiente(): void
+    {
+        [$user, $negocio, $sucursal, $esquite] = $this->seedPosCatalog();
+
+        $role = $negocio->roles()->create([
+            'name' => 'Cajero',
+            'permissions' => Role::defaultPermissions(),
+            'status' => true,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        $empleado = $negocio->empleados()->create([
+            'sucursal_id' => $sucursal->id,
+            'role_id' => $role->id,
+            'first_name' => 'Ana',
+            'paternal_surname' => 'Pos',
+            'employee_number' => 'EMP-MESA',
+            'status' => 'activo',
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        $staff = $negocio->staff()->create([
+            'username' => 'ana.mesa',
+            'password' => 'secreto123',
+            'sucursal_id' => $sucursal->id,
+            'role_id' => $role->id,
+            'empleado_id' => $empleado->id,
+            'status' => true,
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        Sanctum::actingAs($user);
+        $this->abrirCaja($sucursal->id, 100);
+
+        Sanctum::actingAs($staff);
+
+        $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Mesa staff',
+            'orden_en_mesa' => true,
+            'detalles' => [
+                ['producto_id' => $esquite->id, 'cantidad' => 1],
+            ],
+        ])
+            ->assertStatus(403)
+            ->assertJsonPath('message', 'No tienes permiso para registrar órdenes en mesa.');
+    }
+
     private function abrirCaja(?int $sucursalId = null, float $fondo = 0): void
     {
         $payload = ['fondo_inicial' => $fondo];
@@ -652,7 +947,7 @@ class OrdenTest extends TestCase
     }
 
     /**
-     * @return array{0: User, 1: \App\Models\Negocio, 2: Sucursal, 3: \App\Models\Producto, 4: \App\Models\Producto}
+     * @return array{0: User, 1: Negocio, 2: Sucursal, 3: Producto, 4: Producto}
      */
     private function seedPosCatalog(): array
     {
