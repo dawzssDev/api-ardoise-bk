@@ -21,6 +21,7 @@ class InsumoResource extends JsonResource
                 'name' => $this->categoria->name,
             ] : null),
             'name' => $this->name,
+            'unidad_medida' => $this->unidad_medida,
             'status_insumo' => $this->status_insumo,
             'created_by' => $this->whenLoaded('createdBy', fn () => [
                 'id' => $this->createdBy?->id,

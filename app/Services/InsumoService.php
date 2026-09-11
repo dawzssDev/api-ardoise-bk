@@ -18,7 +18,7 @@ class InsumoService
     ) {}
 
     /**
-     * @param  array{name: string, categoria_insumo_id: int, status_insumo?: bool}  $data
+     * @param  array{name: string, categoria_insumo_id: int, unidad_medida: string, status_insumo?: bool}  $data
      */
     public function create(Negocio $negocio, User|Staff $user, array $data): Insumo
     {
@@ -28,6 +28,7 @@ class InsumoService
         return $negocio->insumos()->create([
             'categoria_insumo_id' => $data['categoria_insumo_id'],
             'name' => $data['name'],
+            'unidad_medida' => $data['unidad_medida'],
             'status_insumo' => $data['status_insumo'] ?? true,
             'created_by' => $auditId,
             'updated_by' => $auditId,

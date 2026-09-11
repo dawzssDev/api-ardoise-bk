@@ -29,7 +29,7 @@ class StockInsumoService
         return $negocio->stockInsumos()
             ->with([
                 'sucursal:id,negocio_id,type,name',
-                'insumo:id,negocio_id,name,status_insumo',
+                'insumo:id,negocio_id,name,unidad_medida,status_insumo',
                 'createdBy:id,name,email',
                 'updatedBy:id,name,email',
             ])
@@ -88,6 +88,7 @@ class StockInsumoService
                     'insumo' => [
                         'id' => $row->id,
                         'name' => $row->name,
+                        'unidad_medida' => $row->unidad_medida,
                         'status_insumo' => (bool) $row->status_insumo,
                         'categoria_insumo_id' => $row->categoria_insumo_id,
                         'categoria' => $row->categoria ? [
@@ -141,7 +142,7 @@ class StockInsumoService
 
         return $stock->refresh()->load([
             'sucursal:id,negocio_id,type,name',
-            'insumo:id,negocio_id,name,status_insumo',
+            'insumo:id,negocio_id,name,unidad_medida,status_insumo',
             'createdBy:id,name,email',
             'updatedBy:id,name,email',
         ]);
@@ -186,7 +187,7 @@ class StockInsumoService
 
         return $stock->refresh()->load([
             'sucursal:id,negocio_id,type,name',
-            'insumo:id,negocio_id,name,status_insumo',
+            'insumo:id,negocio_id,name,unidad_medida,status_insumo',
             'createdBy:id,name,email',
             'updatedBy:id,name,email',
         ]);

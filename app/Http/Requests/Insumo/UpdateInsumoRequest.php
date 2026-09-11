@@ -27,6 +27,13 @@ class UpdateInsumoRequest extends FormRequest
             }
         }
 
+        if (! $this->exists('unidad_medida')) {
+            $alias = $this->input('unidad_Medida', $this->input('unidadMedida'));
+            if ($alias !== null) {
+                $merge['unidad_medida'] = $alias;
+            }
+        }
+
         if ($merge !== []) {
             $this->merge($merge);
         }
@@ -58,6 +65,7 @@ class UpdateInsumoRequest extends FormRequest
                     ->where(fn ($q) => $q->where('negocio_id', $negocioId))
                     ->ignore($insumoId),
             ],
+            'unidad_medida' => ['sometimes', 'required', 'string', 'max:50'],
             'status_insumo' => ['sometimes', 'boolean'],
         ];
     }
@@ -73,6 +81,8 @@ class UpdateInsumoRequest extends FormRequest
             'name.required' => 'El nombre del insumo es obligatorio.',
             'name.max' => 'El nombre no puede superar :max caracteres.',
             'name.unique' => 'Ya existe un insumo con ese nombre en tu negocio.',
+            'unidad_medida.required' => 'La unidad de medida del insumo es obligatoria.',
+            'unidad_medida.max' => 'La unidad de medida no puede superar :max caracteres.',
             'status_insumo.boolean' => 'El status del insumo debe ser verdadero o falso.',
         ];
     }

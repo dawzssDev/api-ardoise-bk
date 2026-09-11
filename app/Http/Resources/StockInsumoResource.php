@@ -45,6 +45,7 @@ class StockInsumoResource extends JsonResource
             'insumo' => $this->whenLoaded('insumo', fn () => $this->insumo ? [
                 'id' => $this->insumo->id,
                 'name' => $this->insumo->name,
+                'unidad_medida' => $this->insumo->unidad_medida,
                 'status_insumo' => $this->insumo->status_insumo,
             ] : null),
             'stock_fisico' => (string) $this->stock_fisico,

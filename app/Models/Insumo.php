@@ -14,6 +14,7 @@ class Insumo extends Model
         'negocio_id',
         'categoria_insumo_id',
         'name',
+        'unidad_medida',
         'status_insumo',
         'created_by',
         'updated_by',

@@ -35,11 +35,13 @@ class CategoriaInsumoTest extends TestCase
         $insumoResponse = $this->postJson('/api/insumos', [
             'name' => 'Rib Eye',
             'categoria_insumo_id' => $categoriaId,
+            'unidad_medida' => 'kg',
         ]);
 
         $insumoResponse->assertCreated()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.insumo.name', 'Rib Eye')
+            ->assertJsonPath('data.insumo.unidad_medida', 'kg')
             ->assertJsonPath('data.insumo.categoria_insumo_id', $categoriaId)
             ->assertJsonPath('data.insumo.categoria.name', 'Carnes');
 
@@ -52,6 +54,7 @@ class CategoriaInsumoTest extends TestCase
             'negocio_id' => $negocio->id,
             'categoria_insumo_id' => $categoriaId,
             'name' => 'Rib Eye',
+            'unidad_medida' => 'kg',
         ]);
     }
 

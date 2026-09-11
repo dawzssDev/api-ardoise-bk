@@ -387,6 +387,7 @@ CREATE TABLE `insumos` (
   `negocio_id` bigint UNSIGNED NOT NULL,
   `categoria_insumo_id` bigint UNSIGNED NOT NULL,
   `name` varchar(255) NOT NULL,
+  `unidad_medida` varchar(50) NULL DEFAULT NULL,
   `status_insumo` tinyint(1) NOT NULL DEFAULT 1,
   `created_by` bigint UNSIGNED NOT NULL,
   `updated_by` bigint UNSIGNED NULL DEFAULT NULL,
@@ -1726,6 +1727,16 @@ ALTER TABLE `negocios`
 
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_09_09_130000_add_logo_to_negocios_table', 1);
+
+================================================================================
+ALTER insumos — unidad_medida (string; kg, lt, pza, etc.)
+================================================================================
+-- Si `insumos` ya existe sin este campo, ejecuta:
+ALTER TABLE `insumos`
+  ADD COLUMN `unidad_medida` varchar(50) NULL DEFAULT NULL AFTER `name`;
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_09_11_100000_add_unidad_medida_to_insumos_table', 1);
 
 ================================================================================
 FIN
