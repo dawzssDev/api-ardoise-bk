@@ -64,6 +64,32 @@ class OrdenController extends Controller
         ]);
     }
 
+    public function todas(Request $request): JsonResponse
+    {
+        try {
+            $negocio = $this->ordenes->negocioForUser($request->user());
+            $ordenes = $this->ordenes->listAllForNegocio(
+                $negocio,
+                $request->user(),
+                sucursalId: $this->requestSucursalId($request),
+                status: $request->filled('status') ? (int) $request->integer('status') : (
+                    $request->filled('estatus') ? (int) $request->integer('estatus') : null
+                ),
+            );
+        } catch (HttpException $e) {
+            return $this->errorResponse($e);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'ok',
+            'data' => [
+                'ordenes' => OrdenResource::collection($ordenes)->resolve(),
+            ],
+            'errors' => null,
+        ]);
+    }
+
     /**
      * Tablero de cocina (KDS).
      * Maestro: ?sucursal_id= requerido (selector). Staff: usa su sucursal.

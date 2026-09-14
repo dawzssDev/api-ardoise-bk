@@ -365,6 +365,40 @@ class OrdenTest extends TestCase
             ->assertJsonPath('data.meta.total', 1);
     }
 
+    public function test_maestro_can_list_all_ordenes_without_pagination(): void
+    {
+        [$user, , $sucursal, $esquite] = $this->seedPosCatalog();
+
+        Sanctum::actingAs($user);
+        $this->abrirCaja($sucursal->id, 50);
+
+        $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Mesa 1',
+            'sucursal_id' => $sucursal->id,
+            'tipo_pago' => 'efectivo',
+            'detalles' => [
+                ['producto_id' => $esquite->id, 'cantidad' => 1],
+            ],
+        ])->assertCreated();
+
+        $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Mesa 2',
+            'sucursal_id' => $sucursal->id,
+            'tipo_pago' => 'efectivo',
+            'detalles' => [
+                ['producto_id' => $esquite->id, 'cantidad' => 1],
+            ],
+        ])->assertCreated();
+
+        $response = $this->getJson('/api/ordenes/todas?sucursal_id='.$sucursal->id)
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.ordenes.0.sucursal_id', $sucursal->id)
+            ->assertJsonCount(2, 'data.ordenes');
+
+        $this->assertArrayNotHasKey('meta', $response->json('data'));
+    }
+
     public function test_cannot_order_product_inactive_in_sucursal(): void
     {
         [$user, $negocio, $sucursal, $esquite] = $this->seedPosCatalog();

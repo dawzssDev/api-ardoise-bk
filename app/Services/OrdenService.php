@@ -14,6 +14,8 @@ use App\Models\TurnoCaja;
 use App\Models\User;
 use App\Services\Concerns\ResolvesNegocioFromActor;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
@@ -247,6 +249,33 @@ class OrdenService
         ?int $sucursalId = null,
         ?int $status = null,
     ): LengthAwarePaginator {
+        return $this->ordenesQueryForNegocio($negocio, $actor, $sucursalId, $status)
+            ->paginate($perPage);
+    }
+
+    /**
+     * Mismo listado que index, sin paginación.
+     *
+     * @return Collection<int, Orden>
+     */
+    public function listAllForNegocio(
+        Negocio $negocio,
+        User|Staff $actor,
+        ?int $sucursalId = null,
+        ?int $status = null,
+    ): Collection {
+        return $this->ordenesQueryForNegocio($negocio, $actor, $sucursalId, $status)->get();
+    }
+
+    /**
+     * @return Builder<Orden>|\Illuminate\Database\Eloquent\Relations\HasMany
+     */
+    private function ordenesQueryForNegocio(
+        Negocio $negocio,
+        User|Staff $actor,
+        ?int $sucursalId = null,
+        ?int $status = null,
+    ) {
         $resolvedSucursalId = $this->resolveSucursalForQuery(
             $negocio,
             $actor,
@@ -266,7 +295,7 @@ class OrdenService
             $query->where('status', $status);
         }
 
-        return $query->paginate($perPage);
+        return $query;
     }
 
     /**

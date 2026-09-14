@@ -234,6 +234,7 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'subscription.access'])->grou
 
     // Órdenes POS (header + detalle)
     Route::get('/ordenes', [OrdenController::class, 'index']);
+    Route::get('/ordenes/todas', [OrdenController::class, 'todas']);
     Route::get('/ordenes/cocina', [OrdenController::class, 'cocina']);
     Route::get('/ordenes/hoy', [OrdenController::class, 'hoy']);
     Route::get('/ordenes/por-fecha', [OrdenController::class, 'porFecha']);
