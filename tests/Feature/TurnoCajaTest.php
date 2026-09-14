@@ -676,6 +676,75 @@ class TurnoCajaTest extends TestCase
         $this->assertNull(TurnoCaja::query()->find($turnoId)?->fecha_cierre);
     }
 
+    public function test_encargada_corte_de_dia_saves_and_returns_corte_terminal(): void
+    {
+        [, , , , $staff] = $this->seedCajaContext();
+
+        Sanctum::actingAs($staff);
+
+        $turnoId = $this->postJson('/api/turnos-caja/abrir', [
+            'fondo_inicial' => 100,
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.turno.corte_terminal', null)
+            ->json('data.turno.id');
+
+        $this->getJson("/api/turnos-caja/{$turnoId}")
+            ->assertOk()
+            ->assertJsonPath('data.turno.corte_terminal', null);
+
+        $this->postJson("/api/turnos-caja/{$turnoId}/cerrar", [
+            'efectivo_real' => 100,
+            'corteTerminal' => 850.5,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.turno.status_administrador', TurnoCaja::STATUS_CERRADO)
+            ->assertJsonPath('data.turno.corte_terminal', '850.50')
+            ->assertJsonPath('data.turno.corteTerminal', '850.50');
+
+        $this->getJson("/api/turnos-caja/{$turnoId}")
+            ->assertOk()
+            ->assertJsonPath('data.turno.corte_terminal', '850.50');
+
+        $this->getJson('/api/turnos-caja')
+            ->assertOk()
+            ->assertJsonPath('data.turnos.0.corte_terminal', '850.50');
+
+        $this->assertDatabaseHas('tb_turnos_cajas', [
+            'id' => $turnoId,
+            'corte_terminal' => 850.50,
+        ]);
+    }
+
+    public function test_cajera_close_does_not_save_corte_terminal(): void
+    {
+        [, , , , $staff] = $this->seedCajaContext();
+
+        $permissions = Role::defaultPermissions();
+        $permissions['corteCaja'] = false;
+        $permissions['corteCajaCajera'] = true;
+        $staff->role->update(['permissions' => $permissions]);
+
+        Sanctum::actingAs($staff);
+
+        $turnoId = $this->postJson('/api/turnos-caja/abrir', [
+            'fondo_inicial' => 100,
+        ])->assertCreated()->json('data.turno.id');
+
+        $this->postJson("/api/turnos-caja/{$turnoId}/cerrar", [
+            'efectivo_real' => 100,
+            'corte_terminal' => 850.5,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.turno.status_administrador', TurnoCaja::STATUS_ABIERTO)
+            ->assertJsonPath('data.turno.corte_terminal', null);
+
+        $this->assertDatabaseHas('tb_turnos_cajas', [
+            'id' => $turnoId,
+            'corte_terminal' => null,
+        ]);
+    }
+
     public function test_cannot_open_turno_while_admin_cut_is_pending(): void
     {
         [$user, $negocio, $sucursal, $producto, $staff] = $this->seedCajaContext();

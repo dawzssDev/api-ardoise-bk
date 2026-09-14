@@ -169,6 +169,9 @@ class TurnoCajaController extends Controller
                     : null,
                 $data['status_gerencia'] ?? null,
                 array_key_exists('status_gerencia', $data),
+                array_key_exists('corte_terminal', $data) && $data['corte_terminal'] !== null
+                    ? (float) $data['corte_terminal']
+                    : null,
             );
         } catch (HttpException $e) {
             return $this->errorResponse($e);

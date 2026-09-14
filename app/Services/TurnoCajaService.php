@@ -70,6 +70,7 @@ class TurnoCajaService
         ?float $efectivoRealCajera = null,
         mixed $statusGerencia = null,
         bool $hasStatusGerencia = false,
+        ?float $corteTerminal = null,
     ): TurnoCaja {
         if (! $turno->isAdminOpen()) {
             $this->assertCanCerrarGerencia($actor, $turno);
@@ -92,6 +93,10 @@ class TurnoCajaService
             throw new HttpException(422, 'El efectivo real de la cajera no puede ser negativo.');
         }
 
+        if ($corteTerminal !== null && $corteTerminal < 0) {
+            throw new HttpException(422, 'El corte de terminal no puede ser negativo.');
+        }
+
         if ($this->isCajeraClose($actor)) {
             return $this->cerrarPorCajera(
                 $turno,
@@ -112,6 +117,7 @@ class TurnoCajaService
             $efectivoRealCajera,
             $statusGerencia,
             $hasStatusGerencia,
+            $corteTerminal,
         );
     }
 
@@ -901,6 +907,7 @@ class TurnoCajaService
 
     /**
      * Cierre de administrador: cierra status_administrador (y status si aún estaba abierto).
+     * Aquí se registra corte_terminal (corte de día de encargada / subencargada).
      */
     private function cerrarPorAdministrador(
         TurnoCaja $turno,
@@ -910,12 +917,13 @@ class TurnoCajaService
         ?float $efectivoRealCajera,
         mixed $statusGerencia = null,
         bool $hasStatusGerencia = false,
+        ?float $corteTerminal = null,
     ): TurnoCaja {
         if (! $turno->isAdminOpen()) {
             throw new HttpException(422, 'Este corte de caja ya fue cerrado por el administrador.');
         }
 
-        return DB::transaction(function () use ($turno, $actor, $efectivoReal, $observaciones, $efectivoRealCajera, $statusGerencia, $hasStatusGerencia) {
+        return DB::transaction(function () use ($turno, $actor, $efectivoReal, $observaciones, $efectivoRealCajera, $statusGerencia, $hasStatusGerencia, $corteTerminal) {
             $this->ensureCorteCierre(
                 $turno,
                 $actor,
@@ -951,6 +959,10 @@ class TurnoCajaService
                 'fecha_cierre_cajera' => $turno->fecha_cierre_cajera ?? now(),
                 'observaciones_cierre' => $observaciones ?? $turno->observaciones_cierre,
             ];
+
+            if ($corteTerminal !== null) {
+                $payload['corte_terminal'] = round($corteTerminal, 2);
+            }
 
             if ($hasStatusGerencia) {
                 $payload['status_gerencia'] = $this->statusGerenciaFromData(

@@ -50,6 +50,7 @@ class TurnoCaja extends Model
         'fecha_cierre',
         'fecha_cierre_cajera',
         'observaciones_cierre',
+        'corte_terminal',
     ];
 
     protected function casts(): array
@@ -76,6 +77,7 @@ class TurnoCaja extends Model
             'fecha_cierre' => 'datetime',
             'fecha_cierre_cajera' => 'datetime',
             'date_validation_gerencia' => 'datetime',
+            'corte_terminal' => 'decimal:2',
         ];
     }
 

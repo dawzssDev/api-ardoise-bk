@@ -906,6 +906,7 @@ CREATE TABLE `tb_turnos_cajas` (
   `fecha_cierre` timestamp NULL DEFAULT NULL,
   `fecha_cierre_cajera` timestamp NULL DEFAULT NULL,
   `observaciones_cierre` text NULL,
+  `corte_terminal` decimal(12,2) NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -1755,6 +1756,18 @@ ALTER TABLE `productos`
 
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_09_11_110000_add_descuento_stock_to_productos_table', 1);
+
+================================================================================
+ALTER tb_turnos_cajas — corte_terminal (corte de día encargada / subencargada)
+================================================================================
+-- Total de terminal capturado al cerrar el corte de administrador (corte de día).
+-- Nulo hasta que encargada o subencargada registren el corte.
+-- Si `tb_turnos_cajas` ya existe sin este campo, ejecuta:
+ALTER TABLE `tb_turnos_cajas`
+  ADD COLUMN `corte_terminal` decimal(12,2) NULL DEFAULT NULL AFTER `observaciones_cierre`;
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_09_14_120000_add_corte_terminal_to_tb_turnos_cajas_table', 1);
 
 ================================================================================
 FIN

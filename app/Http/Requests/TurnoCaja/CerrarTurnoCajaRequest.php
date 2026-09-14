@@ -52,6 +52,15 @@ class CerrarTurnoCajaRequest extends FormRequest
             }
         }
 
+        if (! $this->exists('corte_terminal')) {
+            foreach (['corteTerminal', 'corte_de_terminal', 'corteDeTerminal'] as $alias) {
+                if ($this->exists($alias)) {
+                    $merge['corte_terminal'] = $this->input($alias);
+                    break;
+                }
+            }
+        }
+
         if ($merge !== []) {
             $this->merge($merge);
         }
@@ -72,6 +81,7 @@ class CerrarTurnoCajaRequest extends FormRequest
             'efectivo_real_cajera' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'observaciones_cierre' => ['sometimes', 'nullable', 'string', 'max:2000'],
             'status_gerencia' => ['sometimes'],
+            'corte_terminal' => ['sometimes', 'nullable', 'numeric', 'min:0'],
         ];
     }
 
@@ -84,6 +94,7 @@ class CerrarTurnoCajaRequest extends FormRequest
             'efectivo_real.required' => 'Debes indicar el efectivo real contado en caja.',
             'efectivo_real.min' => 'El efectivo real no puede ser negativo.',
             'efectivo_real_cajera.min' => 'El efectivo real de la cajera no puede ser negativo.',
+            'corte_terminal.min' => 'El corte de terminal no puede ser negativo.',
         ];
     }
 }

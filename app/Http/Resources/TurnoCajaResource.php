@@ -86,6 +86,8 @@ class TurnoCajaResource extends JsonResource
             'fecha_cierre' => $this->fecha_cierre?->toIso8601String(),
             'fecha_cierre_cajera' => $this->fecha_cierre_cajera?->toIso8601String(),
             'observaciones_cierre' => $this->observaciones_cierre,
+            'corte_terminal' => $this->corte_terminal !== null ? (string) $this->corte_terminal : null,
+            'corteTerminal' => $this->corte_terminal !== null ? (string) $this->corte_terminal : null,
             'monto_maximo_efectivo' => $this->montoMaximoEfectivoFormatted(),
             'montoMaximoEfectivo' => $this->montoMaximoEfectivoFormatted(),
             'efectivo_en_caja' => number_format($this->efectivoEnCaja(), 2, '.', ''),
