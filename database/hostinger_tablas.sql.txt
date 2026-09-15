@@ -1449,6 +1449,25 @@ CREATE TABLE `proveedores` (
   `address` varchar(255) NULL DEFAULT NULL,
   `contact_name` varchar(150) NULL DEFAULT NULL,
   `notes` varchar(500) NULL DEFAULT NULL,
+  `dp_Folio` varchar(255) NULL DEFAULT NULL,
+  `dp_Categoria` varchar(255) NULL DEFAULT NULL,
+  `cce_momento_pedido` varchar(255) NULL DEFAULT NULL,
+  `cce_dias_entrega` varchar(255) NULL DEFAULT NULL,
+  `cce_envioDom_costo` varchar(255) NULL DEFAULT NULL,
+  `cce_forma_pago` varchar(255) NULL DEFAULT NULL,
+  `cce_condiciones_pagos` varchar(255) NULL DEFAULT NULL,
+  `cce_solicitar_factura` varchar(255) NULL DEFAULT NULL,
+  `cce_pedido_min` varchar(255) NULL DEFAULT NULL,
+  `cce_descansos` varchar(255) NULL DEFAULT NULL,
+  `cce_tiempo_entrega` varchar(255) NULL DEFAULT NULL,
+  `cce_descuento_pVolumen` varchar(255) NULL DEFAULT NULL,
+  `cce_lugar_entrega` varchar(255) NULL DEFAULT NULL,
+  `cce_frecuencia_pedido` varchar(255) NULL DEFAULT NULL,
+  `cce_NoTarjetaClave` varchar(255) NULL DEFAULT NULL,
+  `cce_banco` varchar(255) NULL DEFAULT NULL,
+  `cce_propietario` varchar(255) NULL DEFAULT NULL,
+  `InsumosPrecios` varchar(8000) NULL DEFAULT NULL,
+  `Incidencias` varchar(500) NULL DEFAULT NULL,
   `status` tinyint UNSIGNED NOT NULL DEFAULT 1,
   `created_by` bigint UNSIGNED NOT NULL,
   `updated_by` bigint UNSIGNED NULL DEFAULT NULL,
@@ -1768,6 +1787,36 @@ ALTER TABLE `tb_turnos_cajas`
 
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_09_14_120000_add_corte_terminal_to_tb_turnos_cajas_table', 1);
+
+================================================================================
+ALTER proveedores — datos comerciales / condiciones / InsumosPrecios / Incidencias
+================================================================================
+-- InsumosPrecios guarda JSON (objeto o lista) con:
+--   { "No.", "InsumoProductio", "Presentacion", "Precio", "Precio pUnidad", "ProveedorSuplente" }
+-- Si `proveedores` ya existe sin estos campos, ejecuta:
+ALTER TABLE `proveedores`
+  ADD COLUMN `dp_Folio` varchar(255) NULL DEFAULT NULL AFTER `notes`,
+  ADD COLUMN `dp_Categoria` varchar(255) NULL DEFAULT NULL AFTER `dp_Folio`,
+  ADD COLUMN `cce_momento_pedido` varchar(255) NULL DEFAULT NULL AFTER `dp_Categoria`,
+  ADD COLUMN `cce_dias_entrega` varchar(255) NULL DEFAULT NULL AFTER `cce_momento_pedido`,
+  ADD COLUMN `cce_envioDom_costo` varchar(255) NULL DEFAULT NULL AFTER `cce_dias_entrega`,
+  ADD COLUMN `cce_forma_pago` varchar(255) NULL DEFAULT NULL AFTER `cce_envioDom_costo`,
+  ADD COLUMN `cce_condiciones_pagos` varchar(255) NULL DEFAULT NULL AFTER `cce_forma_pago`,
+  ADD COLUMN `cce_solicitar_factura` varchar(255) NULL DEFAULT NULL AFTER `cce_condiciones_pagos`,
+  ADD COLUMN `cce_pedido_min` varchar(255) NULL DEFAULT NULL AFTER `cce_solicitar_factura`,
+  ADD COLUMN `cce_descansos` varchar(255) NULL DEFAULT NULL AFTER `cce_pedido_min`,
+  ADD COLUMN `cce_tiempo_entrega` varchar(255) NULL DEFAULT NULL AFTER `cce_descansos`,
+  ADD COLUMN `cce_descuento_pVolumen` varchar(255) NULL DEFAULT NULL AFTER `cce_tiempo_entrega`,
+  ADD COLUMN `cce_lugar_entrega` varchar(255) NULL DEFAULT NULL AFTER `cce_descuento_pVolumen`,
+  ADD COLUMN `cce_frecuencia_pedido` varchar(255) NULL DEFAULT NULL AFTER `cce_lugar_entrega`,
+  ADD COLUMN `cce_NoTarjetaClave` varchar(255) NULL DEFAULT NULL AFTER `cce_frecuencia_pedido`,
+  ADD COLUMN `cce_banco` varchar(255) NULL DEFAULT NULL AFTER `cce_NoTarjetaClave`,
+  ADD COLUMN `cce_propietario` varchar(255) NULL DEFAULT NULL AFTER `cce_banco`,
+  ADD COLUMN `InsumosPrecios` varchar(8000) NULL DEFAULT NULL AFTER `cce_propietario`,
+  ADD COLUMN `Incidencias` varchar(500) NULL DEFAULT NULL AFTER `InsumosPrecios`;
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_09_14_130000_add_campos_comerciales_to_proveedores_table', 1);
 
 ================================================================================
 FIN

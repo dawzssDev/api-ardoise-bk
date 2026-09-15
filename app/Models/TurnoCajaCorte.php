@@ -85,9 +85,12 @@ class TurnoCajaCorte extends Model
         );
     }
 
+    /**
+     * Contado − esperado: positivo = sobrante, negativo = faltante.
+     */
     public function diferencia(): float
     {
-        return round($this->efectivoEsperado() - (float) $this->efectivo_real_cajera, 2);
+        return round((float) $this->efectivo_real_cajera - $this->efectivoEsperado(), 2);
     }
 
     public static function labelForTipo(int $tipo): string

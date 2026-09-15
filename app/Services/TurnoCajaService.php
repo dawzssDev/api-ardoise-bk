@@ -1116,9 +1116,12 @@ class TurnoCajaService
      *     total_retiros_efectivo?: float|int|string
      * }  $movimientos
      */
+    /**
+     * Contado − esperado: positivo = sobrante, negativo = faltante.
+     */
     private function diferenciaDesdeMovimientos(array $movimientos, float $contado): float
     {
-        return round($this->efectivoEsperadoAjustado($movimientos) - $contado, 2);
+        return round($contado - $this->efectivoEsperadoAjustado($movimientos), 2);
     }
 
     /**

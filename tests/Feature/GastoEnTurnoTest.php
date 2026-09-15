@@ -440,7 +440,7 @@ class GastoEnTurnoTest extends TestCase
             ->assertJsonPath('data.turno.total_gastos_operativos', '10.00')
             ->assertJsonPath('data.turno.total_retiros_efectivo', '5.00')
             ->assertJsonPath('data.turno.efectivo_esperado', '0.00')
-            ->assertJsonPath('data.turno.diferencia', '-100.00');
+            ->assertJsonPath('data.turno.diferencia', '100.00');
     }
 
     public function test_gastos_de_cajera_y_encargada_restan_de_venta_y_no_de_cuenta_contable(): void

@@ -8,6 +8,8 @@ use Illuminate\Validation\Rule;
 
 class UpdateProveedorRequest extends FormRequest
 {
+    use PreparesProveedorComercialFields;
+
     public function authorize(): bool
     {
         return true;
@@ -84,6 +86,8 @@ class UpdateProveedorRequest extends FormRequest
             $merge['status'] = $this->input('estatus');
         }
 
+        $merge = array_merge($merge, $this->mergeCamposComerciales());
+
         if ($merge !== []) {
             $this->merge($merge);
         }
@@ -115,6 +119,7 @@ class UpdateProveedorRequest extends FormRequest
             'contact_name' => ['sometimes', 'nullable', 'string', 'max:150'],
             'notes' => ['sometimes', 'nullable', 'string', 'max:500'],
             'status' => ['sometimes', 'integer', Rule::in([Proveedor::STATUS_BAJA, Proveedor::STATUS_ACTIVO])],
+            ...$this->camposComercialesRules(),
         ];
     }
 
@@ -129,6 +134,7 @@ class UpdateProveedorRequest extends FormRequest
             'name.unique' => 'Ya existe un proveedor con ese nombre en tu negocio.',
             'email.email' => 'El correo del proveedor no es válido.',
             'status.in' => 'El status del proveedor debe ser 1 (activo) o 0 (baja).',
+            ...$this->camposComercialesMessages(),
         ];
     }
 }

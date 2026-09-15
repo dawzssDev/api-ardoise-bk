@@ -83,6 +83,62 @@ class ProveedorTest extends TestCase
             ->assertJsonPath('data.proveedor.name', 'Carnes del Pacífico');
     }
 
+    public function test_user_can_create_and_get_proveedor_with_campos_comerciales(): void
+    {
+        [$user] = $this->actingWithNegocio();
+
+        $insumosPrecios = [
+            'No.' => '1',
+            'InsumoProductio' => 'Harina',
+            'Presentacion' => 'Costal 25kg',
+            'Precio' => '450.00',
+            'Precio pUnidad' => '18.00',
+            'ProveedorSuplente' => 'Distribuidora Sur',
+        ];
+
+        $this->postJson('/api/proveedores', [
+            'nombre' => 'Abarrotes del Valle',
+            'dp_Folio' => 'F-100',
+            'dp_Categoria' => 'Abarrotes',
+            'cce_momento_pedido' => 'Lunes 8am',
+            'cce_dias_entrega' => 'Miércoles',
+            'cce_envioDom_costo' => '150',
+            'cce_forma_pago' => 'Transferencia',
+            'cce_condiciones_pagos' => '7 días',
+            'cce_solicitar_factura' => 'Sí',
+            'cce_pedido_min' => '1000',
+            'cce_descansos' => 'Domingo',
+            'cce_tiempo_entrega' => '48 horas',
+            'cce_descuento_pVolumen' => '5%',
+            'cce_lugar_entrega' => 'Cocina central',
+            'cce_frecuencia_pedido' => 'Semanal',
+            'cce_NoTarjetaClave' => '1234',
+            'cce_banco' => 'BBVA',
+            'cce_propietario' => 'Juan Pérez',
+            'InsumosPrecios' => $insumosPrecios,
+            'Incidencias' => 'Retraso en última entrega',
+        ])
+            ->assertCreated()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.proveedor.name', 'Abarrotes del Valle')
+            ->assertJsonPath('data.proveedor.dp_Folio', 'F-100')
+            ->assertJsonPath('data.proveedor.dp_Categoria', 'Abarrotes')
+            ->assertJsonPath('data.proveedor.cce_forma_pago', 'Transferencia')
+            ->assertJsonPath('data.proveedor.cce_banco', 'BBVA')
+            ->assertJsonPath('data.proveedor.Incidencias', 'Retraso en última entrega')
+            ->assertJsonPath('data.proveedor.InsumosPrecios.InsumoProductio', 'Harina')
+            ->assertJsonPath('data.proveedor.InsumosPrecios.Precio', '450.00');
+
+        $proveedor = Proveedor::query()->where('name', 'Abarrotes del Valle')->firstOrFail();
+
+        $this->assertSame($user->negocio->id, $proveedor->negocio_id);
+
+        $this->getJson('/api/proveedores/'.$proveedor->id)
+            ->assertOk()
+            ->assertJsonPath('data.proveedor.cce_propietario', 'Juan Pérez')
+            ->assertJsonPath('data.proveedor.InsumosPrecios.ProveedorSuplente', 'Distribuidora Sur');
+    }
+
     public function test_user_can_update_proveedor(): void
     {
         [$user, $negocio] = $this->actingWithNegocio();
@@ -96,11 +152,26 @@ class ProveedorTest extends TestCase
         $this->putJson('/api/proveedores/'.$proveedor->id, [
             'nombre' => 'Lácteos Sur Premium',
             'telefono' => '6672223344',
+            'cce_forma_pago' => 'Efectivo',
+            'InsumosPrecios' => [
+                [
+                    'No.' => '1',
+                    'InsumoProductio' => 'Leche',
+                    'Presentacion' => 'Caja 12',
+                    'Precio' => '240',
+                    'Precio pUnidad' => '20',
+                    'ProveedorSuplente' => '',
+                ],
+            ],
+            'Incidencias' => 'Cambio de horario',
         ])
             ->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.proveedor.name', 'Lácteos Sur Premium')
-            ->assertJsonPath('data.proveedor.phone', '6672223344');
+            ->assertJsonPath('data.proveedor.phone', '6672223344')
+            ->assertJsonPath('data.proveedor.cce_forma_pago', 'Efectivo')
+            ->assertJsonPath('data.proveedor.Incidencias', 'Cambio de horario')
+            ->assertJsonPath('data.proveedor.InsumosPrecios.0.InsumoProductio', 'Leche');
     }
 
     public function test_delete_proveedor_changes_status_to_baja(): void

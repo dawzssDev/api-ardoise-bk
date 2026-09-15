@@ -105,7 +105,7 @@ class TurnoCajaTest extends TestCase
             ->assertJsonPath('data.turno.total_ventas', '220.00')
             ->assertJsonPath('data.turno.efectivo_esperado', '100.00')
             ->assertJsonPath('data.turno.efectivo_real', '90.00')
-            ->assertJsonPath('data.turno.diferencia', '10.00');
+            ->assertJsonPath('data.turno.diferencia', '-10.00');
 
         $this->assertDatabaseCount('tb_ventas', 3);
         $this->assertDatabaseHas('tb_turnos_cajas_cortes', [
