@@ -746,6 +746,7 @@ CREATE TABLE `staff` (
 --   TipoPAGO     → payment_type (credito|tarjeta|transferencia|efectivo|mixto; NULL = orden en mesa pendiente de cobro)
 --   TotalPago    → total
 --   Estatus      → status (1=pendiente, 2=pagada, 3=cancelada, 4=en_cocina, 5=lista, 6=entregada)
+--   moduloVenta  → entero 1-5 (tipo de módulo de venta enviado por el frontend; NULL permitido; default 1)
 --   staff que creó / avanzó / finalizó → created_by_staff_id / advanced_by_staff_id / finished_by_staff_id
 --   tiempos (segundos) → seconds_in_nuevo / seconds_in_preparacion / seconds_in_caja / seconds_total_listo
 CREATE TABLE `ordenes` (
@@ -757,6 +758,7 @@ CREATE TABLE `ordenes` (
   `payment_type` varchar(30) NULL DEFAULT NULL,
   `total` decimal(10,2) NOT NULL DEFAULT 0.00,
   `status` tinyint UNSIGNED NOT NULL DEFAULT 1,
+  `moduloVenta` tinyint UNSIGNED NULL DEFAULT 1,
   `created_by_staff_id` bigint UNSIGNED NULL DEFAULT NULL,
   `advanced_by_staff_id` bigint UNSIGNED NULL DEFAULT NULL,
   `finished_by_staff_id` bigint UNSIGNED NULL DEFAULT NULL,
@@ -1087,6 +1089,11 @@ Si `ordenes` ya existe con `payment_type` NOT NULL (orden en mesa pendiente de c
 
 ALTER TABLE `ordenes`
   MODIFY `payment_type` varchar(30) NULL DEFAULT NULL;
+
+Si `ordenes` ya existe sin `moduloVenta`, ejecuta:
+
+ALTER TABLE `ordenes`
+  ADD COLUMN `moduloVenta` tinyint UNSIGNED NULL DEFAULT 1 AFTER `status`;
 
 ================================================================================
 TIPOS DE VENTA (catálogo + descuento por línea de orden)
@@ -1817,6 +1824,17 @@ ALTER TABLE `proveedores`
 
 INSERT INTO `migrations` (`migration`, `batch`) VALUES
 ('2026_09_14_130000_add_campos_comerciales_to_proveedores_table', 1);
+
+================================================================================
+ALTER ordenes — moduloVenta (1-5, tipo de módulo de venta)
+================================================================================
+-- Entero enviado por el frontend. Nulleable. Filas existentes quedan en 1.
+-- Si `ordenes` ya existe sin este campo, ejecuta:
+ALTER TABLE `ordenes`
+  ADD COLUMN `moduloVenta` tinyint UNSIGNED NULL DEFAULT 1 AFTER `status`;
+
+INSERT INTO `migrations` (`migration`, `batch`) VALUES
+('2026_09_15_120000_add_modulo_venta_to_ordenes_table', 1);
 
 ================================================================================
 FIN

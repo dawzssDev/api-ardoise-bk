@@ -42,6 +42,11 @@ class Orden extends Model
         self::STATUS_ENTREGADA,
     ];
 
+    /** Módulo de venta enviado por el frontend (1-5). */
+    public const MODULO_VENTA_DEFAULT = 1;
+
+    public const MODULO_VENTA_VALUES = [1, 2, 3, 4, 5];
+
     /** Estatus donde cocina “avanza” la orden */
     public const ADVANCE_STATUSES = [
         self::STATUS_EN_COCINA,
@@ -61,6 +66,7 @@ class Orden extends Model
         'payment_type',
         'total',
         'status',
+        'moduloVenta',
         'created_by_staff_id',
         'advanced_by_staff_id',
         'finished_by_staff_id',
@@ -82,6 +88,7 @@ class Orden extends Model
             'order_number' => 'integer',
             'total' => 'decimal:2',
             'status' => 'integer',
+            'moduloVenta' => 'integer',
             'advanced_at' => 'datetime',
             'finished_at' => 'datetime',
             'preparacion_started_at' => 'datetime',

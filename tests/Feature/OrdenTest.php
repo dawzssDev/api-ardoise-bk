@@ -52,6 +52,8 @@ class OrdenTest extends TestCase
             ->assertJsonPath('data.orden.tipo_pago', 'efectivo')
             ->assertJsonPath('data.orden.total', '120.00')
             ->assertJsonPath('data.orden.estatus', Orden::STATUS_PAGADA)
+            ->assertJsonPath('data.orden.moduloVenta', 1)
+            ->assertJsonPath('data.orden.modulo_venta', 1)
             ->assertJsonPath('data.orden.seconds_in_caja', 45)
             ->assertJsonPath('data.orden.tiempo_en_caja', 45)
             ->assertJsonPath('data.orden.staff_creo', null)
@@ -63,11 +65,59 @@ class OrdenTest extends TestCase
             'order_number' => 1,
             'customer_name' => 'Luis',
             'total' => 120.00,
+            'moduloVenta' => 1,
             'seconds_in_caja' => 45,
             'created_by_staff_id' => null,
         ]);
 
         $this->assertDatabaseCount('orden_detalles', 2);
+    }
+
+    public function test_create_orden_persists_modulo_venta_from_frontend(): void
+    {
+        [$user, $negocio, $sucursal, $esquite] = $this->seedPosCatalog();
+
+        Sanctum::actingAs($user);
+        $this->abrirCaja($sucursal->id, 100);
+
+        $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Luis',
+            'sucursal_id' => $sucursal->id,
+            'tipo_pago' => 'efectivo',
+            'moduloVenta' => 3,
+            'detalles' => [
+                ['producto_id' => $esquite->id, 'cantidad' => 1, 'precio' => 50],
+            ],
+        ])->assertCreated()
+            ->assertJsonPath('data.orden.moduloVenta', 3)
+            ->assertJsonPath('data.orden.modulo_venta', 3);
+
+        $this->assertDatabaseHas('ordenes', [
+            'negocio_id' => $negocio->id,
+            'moduloVenta' => 3,
+        ]);
+
+        $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Ana',
+            'sucursal_id' => $sucursal->id,
+            'tipo_pago' => 'efectivo',
+            'modulo_venta' => 5,
+            'detalles' => [
+                ['producto_id' => $esquite->id, 'cantidad' => 1, 'precio' => 50],
+            ],
+        ])->assertCreated()
+            ->assertJsonPath('data.orden.moduloVenta', 5);
+
+        $this->postJson('/api/ordenes', [
+            'nombre_cliente' => 'Invalid',
+            'sucursal_id' => $sucursal->id,
+            'tipo_pago' => 'efectivo',
+            'moduloVenta' => 6,
+            'detalles' => [
+                ['producto_id' => $esquite->id, 'cantidad' => 1, 'precio' => 50],
+            ],
+        ])->assertStatus(422)
+            ->assertJsonValidationErrors(['moduloVenta']);
     }
 
     public function test_staff_is_tracked_on_create_and_kitchen_progress(): void

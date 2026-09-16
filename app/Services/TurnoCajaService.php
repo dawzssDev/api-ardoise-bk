@@ -1117,7 +1117,8 @@ class TurnoCajaService
      * }  $movimientos
      */
     /**
-     * Contado − esperado: positivo = sobrante, negativo = faltante.
+     * Contado − esperado: positivo = sobrante, negativo = faltante. corte cajera AQUI SE MUESTRA EL VALOR DE LA DIFERENCIA de corte de la cajera 
+     *                                                               dentro del corte de la encargada y gerencia
      */
     private function diferenciaDesdeMovimientos(array $movimientos, float $contado): float
     {

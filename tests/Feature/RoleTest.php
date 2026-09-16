@@ -50,6 +50,8 @@ class RoleTest extends TestCase
             ->assertJsonPath('data.role.permissions.ventaDirecta', false)
             ->assertJsonPath('data.role.permissions.levantarOrden', false)
             ->assertJsonPath('data.role.permissions.ordenEnMesa', false)
+            ->assertJsonPath('data.role.permissions.ordeneyRecoger', false)
+            ->assertJsonPath('data.role.permissions.paraDomicilio', false)
             ->assertJsonPath('data.role.permissions.mesas', false)
             ->assertJsonPath('data.role.permissions.cuentasContables', false)
             ->assertJsonPath('data.role.status', true);
@@ -91,6 +93,8 @@ class RoleTest extends TestCase
         $permissions['ventaDirecta'] = true;
         $permissions['levantarOrden'] = true;
         $permissions['ordenEnMesa'] = true;
+        $permissions['ordeneyRecoger'] = true;
+        $permissions['paraDomicilio'] = true;
         $permissions['mesas'] = true;
         $permissions['cuentasContables'] = true;
 
@@ -109,6 +113,8 @@ class RoleTest extends TestCase
             ->assertJsonPath('data.role.permissions.ventaDirecta', true)
             ->assertJsonPath('data.role.permissions.levantarOrden', true)
             ->assertJsonPath('data.role.permissions.ordenEnMesa', true)
+            ->assertJsonPath('data.role.permissions.ordeneyRecoger', true)
+            ->assertJsonPath('data.role.permissions.paraDomicilio', true)
             ->assertJsonPath('data.role.permissions.mesas', true)
             ->assertJsonPath('data.role.permissions.cuentasContables', true);
     }
@@ -226,6 +232,49 @@ class RoleTest extends TestCase
         ])
             ->assertOk()
             ->assertJsonPath('data.role.permissions.ordenEnMesa', true);
+    }
+
+    public function test_user_can_set_ordeney_recoger_and_para_domicilio_permissions(): void
+    {
+        $user = User::factory()->create();
+        $user->negocio()->create([
+            'name' => 'Negocio Test',
+            'phone' => '6670000000',
+            'needs_invoice' => false,
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $permissions = Role::defaultPermissions();
+        $this->assertArrayHasKey('ordeneyRecoger', $permissions);
+        $this->assertArrayHasKey('paraDomicilio', $permissions);
+        $this->assertFalse($permissions['ordeneyRecoger']);
+        $this->assertFalse($permissions['paraDomicilio']);
+
+        $permissions['ordeneyRecoger'] = true;
+        $permissions['paraDomicilio'] = true;
+
+        $roleId = $this->postJson('/api/roles', [
+            'name' => 'Cajero pickup',
+            'permissions' => $permissions,
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.role.permissions.ordeneyRecoger', true)
+            ->assertJsonPath('data.role.permissions.paraDomicilio', true)
+            ->json('data.role.id');
+
+        $permissions['ordeneyRecoger'] = false;
+        $permissions['paraDomicilio'] = false;
+        unset($permissions['ordeneyRecoger'], $permissions['paraDomicilio']);
+        $permissions['orden_y_recoger'] = true;
+        $permissions['para_domicilio'] = true;
+
+        $this->putJson("/api/roles/{$roleId}", [
+            'permissions' => $permissions,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.role.permissions.ordeneyRecoger', true)
+            ->assertJsonPath('data.role.permissions.paraDomicilio', true);
     }
 
     public function test_user_can_set_mesas_permission(): void

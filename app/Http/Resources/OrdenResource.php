@@ -37,6 +37,8 @@ class OrdenResource extends JsonResource
             'pendiente_por_pagar' => $this->isPendientePago(),
             'estatus' => $this->status,
             'status' => $this->status,
+            'moduloVenta' => $this->moduloVenta,
+            'modulo_venta' => $this->moduloVenta,
             'detalles' => OrdenDetalleResource::collection($this->whenLoaded('detalles')),
             'staff_creo' => $this->whenLoaded('createdByStaff', fn () => $this->staffPayload($this->createdByStaff)),
             'staff_avanzo' => $this->whenLoaded('advancedByStaff', fn () => $this->staffPayload($this->advancedByStaff)),

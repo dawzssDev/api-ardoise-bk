@@ -135,6 +135,8 @@ class UpdateRoleRequest extends FormRequest
             'permissions.cuentas_por_cobrar' => ['sometimes', 'boolean'],
             'permissions.ventaDirecta' => ['sometimes', 'boolean'],
             'permissions.levantarOrden' => ['sometimes', 'boolean'],
+            'permissions.ordeneyRecoger' => ['sometimes', 'boolean'],
+            'permissions.paraDomicilio' => ['sometimes', 'boolean'],
             'permissions.ordenEnMesa' => ['sometimes', 'boolean'],
             'permissions.cuentasContables' => ['sometimes', 'boolean'],
             'permissions.cancelarDetalles' => ['sometimes', 'boolean'],

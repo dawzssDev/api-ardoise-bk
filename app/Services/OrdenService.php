@@ -42,6 +42,7 @@ class OrdenService
      *     payment_type?: string|null,
      *     pagos?: list<array{payment_type: string, amount: float|int|string}>|null,
      *     status?: int,
+     *     moduloVenta?: int|null,
      *     orden_en_mesa?: bool,
      *     pendiente_pago?: bool,
      *     seconds_in_caja?: int|null,
@@ -107,6 +108,9 @@ class OrdenService
                 'payment_type' => $paymentType,
                 'total' => $total,
                 'status' => $status,
+                'moduloVenta' => array_key_exists('moduloVenta', $data)
+                    ? ($data['moduloVenta'] === null ? null : (int) $data['moduloVenta'])
+                    : Orden::MODULO_VENTA_DEFAULT,
                 'seconds_in_caja' => $data['seconds_in_caja'] ?? null,
                 'created_by_staff_id' => $actor instanceof Staff ? $actor->id : null,
                 'created_by' => $auditId,

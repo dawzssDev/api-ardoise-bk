@@ -82,6 +82,15 @@ class CreateOrdenRequest extends FormRequest
             $merge['orden_en_mesa'] = true;
         }
 
+        if (! $this->exists('moduloVenta')) {
+            foreach (['modulo_venta', 'ModuloVenta', 'modulo_Venta'] as $alias) {
+                if ($this->exists($alias)) {
+                    $merge['moduloVenta'] = $this->input($alias);
+                    break;
+                }
+            }
+        }
+
         if (! $this->exists('seconds_in_caja')) {
             foreach (['tiempo_en_caja', 'tiempoEnCaja', 'secondsInCaja'] as $alias) {
                 if ($this->exists($alias)) {
@@ -167,6 +176,7 @@ class CreateOrdenRequest extends FormRequest
             'pagos.*.payment_type' => ['required_with:pagos', 'string', 'max:30'],
             'pagos.*.amount' => ['required_with:pagos', 'numeric', 'gt:0'],
             'status' => ['sometimes', 'integer', Rule::in(Orden::STATUSES)],
+            'moduloVenta' => ['sometimes', 'nullable', 'integer', Rule::in(Orden::MODULO_VENTA_VALUES)],
             'orden_en_mesa' => ['sometimes', 'boolean'],
             'seconds_in_caja' => ['sometimes', 'nullable', 'integer', 'min:0'],
             'detalles' => ['required', 'array', 'min:1'],
@@ -241,6 +251,8 @@ class CreateOrdenRequest extends FormRequest
     {
         return [
             'customer_name.required' => 'El nombre del cliente/pedido es obligatorio.',
+            'moduloVenta.integer' => 'El módulo de venta debe ser un número entero.',
+            'moduloVenta.in' => 'El módulo de venta debe ser un valor del 1 al 5.',
             'pagos.min' => 'Debes enviar al menos una forma de pago.',
             'pagos.*.payment_type.required_with' => 'Cada pago debe incluir tipo_pago.',
             'pagos.*.amount.required_with' => 'Cada pago debe incluir monto.',
