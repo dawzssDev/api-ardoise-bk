@@ -49,6 +49,26 @@ class GastoEnTurnoController extends Controller
         ]);
     }
 
+    public function todas(Request $request): JsonResponse
+    {
+        try {
+            $negocio = $this->turnos->negocioForUser($request->user());
+            $gastos = $this->turnos->listAllGastosForNegocio($negocio, $this->gastoFilters($request));
+        } catch (HttpException $e) {
+            return $this->errorResponse($e);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'ok',
+            'data' => [
+                'gastos' => GastoEnTurnoResource::collection($gastos)->resolve(),
+                'totales' => $this->turnos->summarizeGastos($gastos),
+            ],
+            'errors' => null,
+        ]);
+    }
+
     public function store(CreateGastoEnTurnoRequest $request, int $id): JsonResponse
     {
         try {
@@ -107,6 +127,71 @@ class GastoEnTurnoController extends Controller
             ],
             'errors' => null,
         ], 201);
+    }
+
+    /**
+     * @return array{
+     *     sucursal_id: int|null,
+     *     tipo_gasto: string|null,
+     *     proveedor_id: int|null,
+     *     descripcion: string|null,
+     *     fecha: string|null,
+     *     fecha_desde: string|null,
+     *     fecha_hasta: string|null,
+     *     turno_caja_id: int|null
+     * }
+     */
+    private function gastoFilters(Request $request): array
+    {
+        $sucursalId = null;
+        foreach (['sucursal_id', 'sucursalId', 'id_sucursal'] as $key) {
+            if ($request->filled($key)) {
+                $sucursalId = (int) $request->input($key);
+                break;
+            }
+        }
+
+        $tipo = $request->input('tipo_gasto', $request->input('tipo'));
+        $descripcion = $request->input(
+            'descripcion',
+            $request->input('q', $request->input('search', $request->input('buscar')))
+        );
+        $proveedorId = null;
+        foreach (['proveedor_id', 'proveedorId', 'id_proveedor'] as $key) {
+            if ($request->filled($key)) {
+                $proveedorId = (int) $request->input($key);
+                break;
+            }
+        }
+
+        $turnoId = null;
+        foreach (['turno_caja_id', 'turno_id', 'turnoId'] as $key) {
+            if ($request->filled($key)) {
+                $turnoId = (int) $request->input($key);
+                break;
+            }
+        }
+
+        $fecha = $request->input('fecha');
+        $periodo = mb_strtolower(trim((string) $request->input('periodo', '')));
+        if ($periodo === 'hoy' || (is_string($fecha) && mb_strtolower(trim($fecha)) === 'hoy')) {
+            $fecha = now()->toDateString();
+        }
+
+        return [
+            'sucursal_id' => $sucursalId,
+            'tipo_gasto' => is_string($tipo) && trim($tipo) !== '' ? trim($tipo) : null,
+            'proveedor_id' => $proveedorId,
+            'descripcion' => is_string($descripcion) && trim($descripcion) !== '' ? trim($descripcion) : null,
+            'fecha' => is_string($fecha) && trim($fecha) !== '' ? trim($fecha) : null,
+            'fecha_desde' => $request->filled('fecha_desde')
+                ? (string) $request->input('fecha_desde')
+                : ($request->filled('from') ? (string) $request->input('from') : null),
+            'fecha_hasta' => $request->filled('fecha_hasta')
+                ? (string) $request->input('fecha_hasta')
+                : ($request->filled('to') ? (string) $request->input('to') : null),
+            'turno_caja_id' => $turnoId,
+        ];
     }
 
     private function errorResponse(HttpException $e): JsonResponse

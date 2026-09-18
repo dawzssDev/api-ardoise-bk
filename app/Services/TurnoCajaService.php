@@ -15,6 +15,7 @@ use App\Models\User;
 use App\Models\Venta;
 use App\Services\Concerns\ResolvesNegocioFromActor;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
@@ -569,15 +570,202 @@ class TurnoCajaService
 
     public function listGastos(TurnoCaja $turno, int $perPage = 50): LengthAwarePaginator
     {
+        return $this->gastosQuery($turno)->paginate($perPage);
+    }
+
+    /**
+     * @return Collection<int, GastoEnTurno>
+     */
+    public function listAllGastos(TurnoCaja $turno): Collection
+    {
+        return $this->gastosQuery($turno)->get();
+    }
+
+    /**
+     * Gastos del negocio, sin limitar por turno. Filtros opcionales del frontend.
+     *
+     * @param  array{
+     *     sucursal_id?: int|null,
+     *     tipo_gasto?: string|null,
+     *     proveedor_id?: int|null,
+     *     descripcion?: string|null,
+     *     fecha?: string|null,
+     *     fecha_desde?: string|null,
+     *     fecha_hasta?: string|null,
+     *     turno_caja_id?: int|null
+     * }  $filters
+     * @return Collection<int, GastoEnTurno>
+     */
+    public function listAllGastosForNegocio(Negocio $negocio, array $filters = []): Collection
+    {
+        return $this->gastosForNegocioQuery($negocio, $filters)->get();
+    }
+
+    /**
+     * Totales sobre el mismo conjunto filtrado de gastos del negocio.
+     *
+     * @param  Collection<int, GastoEnTurno>  $gastos
+     * @return array{
+     *     pago_proveedor: float,
+     *     gasto_operativo: float,
+     *     retiro_efectivo: float,
+     *     pagos_con_deposito: float,
+     *     total: float,
+     *     cantidad: int,
+     *     movimientos: array{pago_proveedor: int, gasto_operativo: int, retiro_efectivo: int}
+     * }
+     */
+    public function summarizeGastos(Collection $gastos): array
+    {
+        $pagoProveedor = 0.0;
+        $gastoOperativo = 0.0;
+        $retiroEfectivo = 0.0;
+        $pagosConDeposito = 0.0;
+        $countPago = 0;
+        $countOperativo = 0;
+        $countRetiro = 0;
+
+        foreach ($gastos as $gasto) {
+            $monto = (float) $gasto->monto;
+
+            switch ((string) $gasto->tipo_gasto) {
+                case GastoEnTurno::TIPO_PAGO_PROVEEDOR:
+                    $pagoProveedor += $monto;
+                    $countPago++;
+                    break;
+                case GastoEnTurno::TIPO_GASTO_OPERATIVO:
+                    $gastoOperativo += $monto;
+                    $countOperativo++;
+                    break;
+                case GastoEnTurno::TIPO_RETIRO_EFECTIVO:
+                    $retiroEfectivo += $monto;
+                    $countRetiro++;
+                    break;
+            }
+
+            if ((string) $gasto->origen === GastoEnTurno::ORIGEN_DEPOSITO) {
+                $pagosConDeposito += $monto;
+            }
+        }
+
+        return [
+            'pago_proveedor' => round($pagoProveedor, 2),
+            'gasto_operativo' => round($gastoOperativo, 2),
+            'retiro_efectivo' => round($retiroEfectivo, 2),
+            'pagos_con_deposito' => round($pagosConDeposito, 2),
+            'total' => round($pagoProveedor + $gastoOperativo + $retiroEfectivo, 2),
+            'cantidad' => $gastos->count(),
+            'movimientos' => [
+                'pago_proveedor' => $countPago,
+                'gasto_operativo' => $countOperativo,
+                'retiro_efectivo' => $countRetiro,
+            ],
+        ];
+    }
+
+    /**
+     * @return \Illuminate\Database\Eloquent\Relations\HasMany<GastoEnTurno, TurnoCaja>
+     */
+    private function gastosQuery(TurnoCaja $turno)
+    {
         return $turno->gastos()
-            ->with([
-                'cajero:id,username,sucursal_id',
-                'user:id,name,email',
-                'sucursal:id,negocio_id,type,name',
-                'proveedor:id,negocio_id,name,legal_name,rfc,status',
-            ])
-            ->latest('id')
-            ->paginate($perPage);
+            ->with($this->gastoRelations())
+            ->latest('id');
+    }
+
+    /**
+     * @param  array{
+     *     sucursal_id?: int|null,
+     *     tipo_gasto?: string|null,
+     *     proveedor_id?: int|null,
+     *     descripcion?: string|null,
+     *     fecha?: string|null,
+     *     fecha_desde?: string|null,
+     *     fecha_hasta?: string|null,
+     *     turno_caja_id?: int|null
+     * }  $filters
+     * @return \Illuminate\Database\Eloquent\Builder<GastoEnTurno>
+     */
+    private function gastosForNegocioQuery(Negocio $negocio, array $filters = [])
+    {
+        $query = GastoEnTurno::query()
+            ->where('negocio_id', $negocio->id)
+            ->with($this->gastoRelations())
+            ->latest('id');
+
+        $sucursalId = isset($filters['sucursal_id']) ? (int) $filters['sucursal_id'] : 0;
+        if ($sucursalId > 0) {
+            $this->assertSucursalBelongs($negocio, $sucursalId);
+            $query->where('sucursal_id', $sucursalId);
+        }
+
+        $tipo = GastoEnTurno::normalizeTipo($filters['tipo_gasto'] ?? null);
+        if ($tipo) {
+            $query->where('tipo_gasto', $tipo);
+        }
+
+        $proveedorId = isset($filters['proveedor_id']) ? (int) $filters['proveedor_id'] : 0;
+        if ($proveedorId > 0) {
+            $query->where('proveedor_id', $proveedorId);
+        }
+
+        $descripcion = isset($filters['descripcion']) ? trim((string) $filters['descripcion']) : '';
+        if ($descripcion !== '') {
+            $term = addcslashes($descripcion, '%_\\');
+            $query->where('descripcion', 'like', '%'.$term.'%');
+        }
+
+        $fecha = $this->normalizeDateFilter($filters['fecha'] ?? null);
+        if ($fecha) {
+            $query->whereDate('fecha_registro', $fecha);
+        } else {
+            $desde = $this->normalizeDateFilter($filters['fecha_desde'] ?? null);
+            $hasta = $this->normalizeDateFilter($filters['fecha_hasta'] ?? null);
+            if ($desde) {
+                $query->whereDate('fecha_registro', '>=', $desde);
+            }
+            if ($hasta) {
+                $query->whereDate('fecha_registro', '<=', $hasta);
+            }
+        }
+
+        $turnoId = isset($filters['turno_caja_id']) ? (int) $filters['turno_caja_id'] : 0;
+        if ($turnoId > 0) {
+            $query->where('turno_caja_id', $turnoId);
+        }
+
+        return $query;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function gastoRelations(): array
+    {
+        return [
+            'cajero:id,username,sucursal_id',
+            'user:id,name,email',
+            'sucursal:id,negocio_id,type,name',
+            'proveedor:id,negocio_id,name,legal_name,rfc,status',
+        ];
+    }
+
+    private function normalizeDateFilter(mixed $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $raw = trim($value);
+        if ($raw === '') {
+            return null;
+        }
+
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $raw) !== 1) {
+            return null;
+        }
+
+        return $raw;
     }
 
     /**

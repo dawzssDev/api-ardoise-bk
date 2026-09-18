@@ -219,6 +219,7 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'subscription.access'])->grou
     Route::post('/turnos-caja/actual/gastos', [GastoEnTurnoController::class, 'storeActual']);
     Route::post('/turnos-caja/actual/depositos', [DepositoEfectivoEnTurnoController::class, 'storeActual']);
     Route::post('/turnos-caja/actual/cortes', [TurnoCajaController::class, 'storeCorteActual']);
+    Route::get('/gastos/todas', [GastoEnTurnoController::class, 'todas']);
     Route::get('/turnos-caja/{id}', [TurnoCajaController::class, 'show'])->whereNumber('id');
     Route::get('/turnos-caja/{id}/preview', [TurnoCajaController::class, 'preview'])->whereNumber('id');
     Route::post('/turnos-caja/{id}/cerrar', [TurnoCajaController::class, 'cerrar'])->whereNumber('id');

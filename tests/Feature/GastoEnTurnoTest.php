@@ -105,6 +105,158 @@ class GastoEnTurnoTest extends TestCase
             ->assertJsonPath('data.totales.retiro_efectivo', 20)
             ->assertJsonPath('data.totales.total', 210.5)
             ->assertJsonPath('data.meta.total', 3);
+
+        $todas = $this->getJson('/api/gastos/todas')
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.totales.pago_proveedor', 150.5)
+            ->assertJsonPath('data.totales.gasto_operativo', 40)
+            ->assertJsonPath('data.totales.retiro_efectivo', 20)
+            ->assertJsonPath('data.totales.total', 210.5)
+            ->assertJsonPath('data.totales.cantidad', 3)
+            ->assertJsonCount(3, 'data.gastos');
+
+        $this->assertArrayNotHasKey('meta', $todas->json('data'));
+        $this->assertArrayNotHasKey('turno_id', $todas->json('data'));
+    }
+
+    public function test_todas_returns_all_negocio_gastos_across_turnos_and_sucursales(): void
+    {
+        [$user, $negocio, $sucursal, $staff] = $this->seedCajaContext();
+        $otraSucursal = $negocio->sucursales()->create([
+            'type' => Sucursal::TYPE_SUCURSAL,
+            'name' => 'Norte',
+            'is_active' => true,
+        ]);
+        $otraStaff = $this->createStaffWithPermissions(
+            $user,
+            $negocio,
+            $otraSucursal,
+            'Cajera Norte',
+            'nora.caja',
+            'EMP-CAJ-N',
+            ['corteCaja' => true],
+        );
+        $proveedor = $this->createProveedor($user, $negocio);
+
+        $other = User::factory()->create();
+        $otroNegocio = $other->negocio()->create([
+            'name' => 'Negocio Ajeno',
+            'phone' => '5533333333',
+            'needs_invoice' => false,
+        ]);
+        $otraSucursalAjena = $otroNegocio->sucursales()->create([
+            'type' => Sucursal::TYPE_SUCURSAL,
+            'name' => 'Ajena',
+            'is_active' => true,
+        ]);
+        GastoEnTurno::query()->create([
+            'turno_caja_id' => TurnoCaja::query()->create([
+                'user_id' => $other->id,
+                'negocio_id' => $otroNegocio->id,
+                'sucursal_id' => $otraSucursalAjena->id,
+                'fondo_inicial' => 0,
+                'status' => TurnoCaja::STATUS_ABIERTO,
+                'status_administrador' => TurnoCaja::STATUS_ABIERTO,
+                'status_gerencia' => TurnoCaja::STATUS_ABIERTO,
+                'fecha_apertura' => now(),
+            ])->id,
+            'user_id' => $other->id,
+            'negocio_id' => $otroNegocio->id,
+            'sucursal_id' => $otraSucursalAjena->id,
+            'tipo_gasto' => GastoEnTurno::TIPO_GASTO_OPERATIVO,
+            'descripcion' => 'Gasto de otro negocio',
+            'monto' => 999,
+            'fecha_registro' => now(),
+        ]);
+
+        Sanctum::actingAs($staff);
+        $turnoCentro = $this->postJson('/api/turnos-caja/abrir', [
+            'fondo_inicial' => 500,
+        ])->assertCreated()->json('data.turno.id');
+        $this->postJson("/api/turnos-caja/{$turnoCentro}/gastos", [
+            'tipo' => 'Pago proveedor',
+            'proveedor_id' => $proveedor->id,
+            'descripcion' => 'Pago a distribuidor de refrescos',
+            'monto' => 150.5,
+        ])->assertCreated();
+        $this->postJson("/api/turnos-caja/{$turnoCentro}/gastos", [
+            'tipo' => 'Gasto operativo',
+            'descripcion' => 'Compra de bolsas',
+            'monto' => 40,
+        ])->assertCreated();
+
+        Sanctum::actingAs($otraStaff);
+        $turnoNorte = $this->postJson('/api/turnos-caja/abrir', [
+            'fondo_inicial' => 300,
+            'sucursal_id' => $otraSucursal->id,
+        ])->assertCreated()->json('data.turno.id');
+        $this->postJson("/api/turnos-caja/{$turnoNorte}/gastos", [
+            'tipo' => 'Retiro de efectivo',
+            'descripcion' => 'Retiro para cambio',
+            'monto' => 20,
+        ])->assertCreated();
+
+        Sanctum::actingAs($user);
+
+        $todas = $this->getJson('/api/gastos/todas')
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.totales.pago_proveedor', 150.5)
+            ->assertJsonPath('data.totales.gasto_operativo', 40)
+            ->assertJsonPath('data.totales.retiro_efectivo', 20)
+            ->assertJsonPath('data.totales.total', 210.5)
+            ->assertJsonPath('data.totales.cantidad', 3)
+            ->assertJsonPath('data.totales.movimientos.pago_proveedor', 1)
+            ->assertJsonPath('data.totales.movimientos.gasto_operativo', 1)
+            ->assertJsonPath('data.totales.movimientos.retiro_efectivo', 1)
+            ->assertJsonCount(3, 'data.gastos');
+
+        $this->assertArrayNotHasKey('turno_id', $todas->json('data'));
+        $this->assertEqualsCanonicalizing(
+            [$sucursal->id, $sucursal->id, $otraSucursal->id],
+            array_column($todas->json('data.gastos'), 'sucursal_id'),
+        );
+
+        $this->getJson('/api/gastos/todas?sucursal_id='.$otraSucursal->id)
+            ->assertOk()
+            ->assertJsonCount(1, 'data.gastos')
+            ->assertJsonPath('data.gastos.0.sucursal_id', $otraSucursal->id)
+            ->assertJsonPath('data.totales.retiro_efectivo', 20)
+            ->assertJsonPath('data.totales.total', 20);
+
+        $this->getJson('/api/gastos/todas?tipo=gasto_operativo')
+            ->assertOk()
+            ->assertJsonCount(1, 'data.gastos')
+            ->assertJsonPath('data.gastos.0.descripcion', 'Compra de bolsas')
+            ->assertJsonPath('data.totales.gasto_operativo', 40);
+
+        $this->getJson('/api/gastos/todas?proveedor_id='.$proveedor->id)
+            ->assertOk()
+            ->assertJsonCount(1, 'data.gastos')
+            ->assertJsonPath('data.gastos.0.proveedor_id', $proveedor->id);
+
+        $this->getJson('/api/gastos/todas?q=bolsas')
+            ->assertOk()
+            ->assertJsonCount(1, 'data.gastos')
+            ->assertJsonPath('data.gastos.0.descripcion', 'Compra de bolsas');
+
+        $this->getJson('/api/gastos/todas?periodo=hoy')
+            ->assertOk()
+            ->assertJsonCount(3, 'data.gastos');
+
+        $this->getJson('/api/gastos/todas?fecha_desde=2099-01-01')
+            ->assertOk()
+            ->assertJsonCount(0, 'data.gastos')
+            ->assertJsonPath('data.totales.total', 0);
+
+        $this->getJson('/api/turnos-caja/gastos/todas')
+            ->assertOk()
+            ->assertJsonCount(3, 'data.gastos');
+
+        $this->getJson("/api/turnos-caja/{$turnoCentro}/gastos/todas")
+            ->assertOk()
+            ->assertJsonCount(3, 'data.gastos');
     }
 
     public function test_cannot_register_gasto_greater_than_fondo_plus_ventas_efectivo(): void
