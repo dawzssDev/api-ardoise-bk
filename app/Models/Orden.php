@@ -45,7 +45,7 @@ class Orden extends Model
     /** Módulo de venta enviado por el frontend (1-5). */
     public const MODULO_VENTA_DEFAULT = 1;
 
-    public const MODULO_VENTA_VALUES = [1, 2, 3, 4, 5];
+    public const MODULO_VENTA_VALUES = [1, 2, 3, 4, 5, 6];
 
     /** Estatus donde cocina “avanza” la orden */
     public const ADVANCE_STATUSES = [

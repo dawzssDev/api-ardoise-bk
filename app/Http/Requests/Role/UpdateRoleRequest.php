@@ -138,6 +138,7 @@ class UpdateRoleRequest extends FormRequest
             'permissions.ordeneyRecoger' => ['sometimes', 'boolean'],
             'permissions.paraDomicilio' => ['sometimes', 'boolean'],
             'permissions.ordenEnMesa' => ['sometimes', 'boolean'],
+            'permissions.driveThru' => ['sometimes', 'boolean'],
             'permissions.cuentasContables' => ['sometimes', 'boolean'],
             'permissions.cancelarDetalles' => ['sometimes', 'boolean'],
             'status' => ['sometimes', 'boolean'],
