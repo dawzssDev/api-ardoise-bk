@@ -24,6 +24,12 @@ return Application::configure(basePath: dirname(__DIR__))
         // Hostinger / LiteSpeed: confiar en el proxy para HTTPS y IP real
         $middleware->trustProxies(at: '*');
 
+        // Instrumentación: PRIMERO en el grupo api para capturar
+        // también las peticiones que mueren dentro de Sanctum
+        $middleware->api(prepend: [
+            \App\Http\Middleware\RequestMetrics::class,
+        ]);
+
         $middleware->alias([
             'master' => \App\Http\Middleware\EnsureMasterUser::class,
             'subscription.access' => \App\Http\Middleware\EnsureSubscriptionAccess::class,

@@ -126,6 +126,14 @@ return [
         'emergency' => [
             'path' => storage_path('logs/laravel.log'),
         ],
+        'metrics' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/metrics.log'),
+            'days' => 7,
+            'level' => 'info',
+            'formatter' => \Monolog\Formatter\JsonFormatter::class,
+            'formatter_with' => ['appendNewline' => true],
+        ],
 
     ],
 
