@@ -292,6 +292,110 @@ class OrdenTest extends TestCase
         $this->assertSame($response->json('data.nuevo'), $response->json('data.activos'));
     }
 
+    public function test_kitchen_board_keeps_old_active_orders_and_windows_listas(): void
+    {
+        [$user, $negocio, $sucursal, $esquite] = $this->seedPosCatalog();
+
+        $otra = $negocio->sucursales()->create([
+            'type' => Sucursal::TYPE_SUCURSAL,
+            'name' => 'Norte',
+            'is_active' => true,
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $activaVieja = $this->insertKitchenOrden(
+            $negocio,
+            $sucursal,
+            $esquite,
+            Orden::STATUS_PAGADA,
+            'Activa vieja',
+            ['created_at' => now()->subDays(2), 'updated_at' => now()->subDays(2)],
+        );
+
+        $enCocinaVieja = $this->insertKitchenOrden(
+            $negocio,
+            $sucursal,
+            $esquite,
+            Orden::STATUS_EN_COCINA,
+            'En cocina vieja',
+            [
+                'created_at' => now()->subDays(2),
+                'updated_at' => now()->subDays(2),
+                'preparacion_started_at' => now()->subDays(2),
+            ],
+        );
+
+        $listaReciente = $this->insertKitchenOrden(
+            $negocio,
+            $sucursal,
+            $esquite,
+            Orden::STATUS_LISTA,
+            'Lista 1h',
+            [
+                'listo_at' => now()->subHour(),
+                'finished_at' => now()->subHour(),
+            ],
+        );
+
+        $listaVieja = $this->insertKitchenOrden(
+            $negocio,
+            $sucursal,
+            $esquite,
+            Orden::STATUS_LISTA,
+            'Lista 2d',
+            [
+                'listo_at' => now()->subDays(2),
+                'finished_at' => now()->subDays(2),
+                'created_at' => now()->subDays(2),
+                'updated_at' => now()->subDays(2),
+            ],
+        );
+
+        $listaOtraSucursal = $this->insertKitchenOrden(
+            $negocio,
+            $otra,
+            $esquite,
+            Orden::STATUS_LISTA,
+            'Otra sucursal',
+            [
+                'listo_at' => now()->subHour(),
+                'finished_at' => now()->subHour(),
+            ],
+        );
+
+        $response = $this->getJson('/api/ordenes/cocina?sucursal_id='.$sucursal->id)
+            ->assertOk()
+            ->assertJsonPath('success', true);
+
+        $this->assertSame(
+            ['sucursal', 'nuevo', 'en_preparacion', 'listo', 'activos', 'en_proceso', 'finalizados'],
+            array_keys($response->json('data')),
+        );
+
+        $ids = collect($response->json('data.nuevo'))
+            ->concat($response->json('data.en_preparacion'))
+            ->concat($response->json('data.listo'))
+            ->pluck('id')
+            ->all();
+
+        $this->assertContains($activaVieja->id, $ids);
+        $this->assertContains($enCocinaVieja->id, $ids);
+        $this->assertContains($listaReciente->id, $ids);
+        $this->assertNotContains($listaVieja->id, $ids);
+        $this->assertNotContains($listaOtraSucursal->id, $ids);
+
+        $ordenKeys = array_keys($response->json('data.nuevo.0'));
+        $this->assertSame($ordenKeys, array_keys($response->json('data.en_preparacion.0')));
+        $this->assertSame($ordenKeys, array_keys($response->json('data.listo.0')));
+        $this->assertSame($response->json('data.nuevo'), $response->json('data.activos'));
+        $this->assertSame($response->json('data.en_preparacion'), $response->json('data.en_proceso'));
+        $this->assertSame($response->json('data.listo'), $response->json('data.finalizados'));
+        $this->assertContains('estatus', $ordenKeys);
+        $this->assertContains('detalles', $ordenKeys);
+        $this->assertContains('listo_at', $ordenKeys);
+    }
+
     public function test_order_number_restarts_per_sucursal(): void
     {
         [$user, $negocio, $sucursal, $esquite] = $this->seedPosCatalog();
@@ -1223,6 +1327,48 @@ class OrdenTest extends TestCase
             'insumo_id' => $insumoEsquite->id,
             'stock_fisico' => 500,
         ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $overrides
+     */
+    private function insertKitchenOrden(
+        Negocio $negocio,
+        Sucursal $sucursal,
+        Producto $producto,
+        int $status,
+        string $customerName,
+        array $overrides = [],
+    ): Orden {
+        $nextNumber = (int) $negocio->ordenes()
+            ->where('sucursal_id', $sucursal->id)
+            ->max('order_number') + 1;
+
+        $orden = $negocio->ordenes()->create(array_merge([
+            'order_number' => $nextNumber,
+            'sucursal_id' => $sucursal->id,
+            'customer_name' => $customerName,
+            'payment_type' => 'efectivo',
+            'total' => 50,
+            'status' => $status,
+            'moduloVenta' => 1,
+        ], $overrides));
+
+        $detalleStatus = $status === Orden::STATUS_LISTA
+            ? OrdenDetalle::STATUS_LISTO
+            : ($status === Orden::STATUS_EN_COCINA
+                ? OrdenDetalle::STATUS_EN_PREPARACION
+                : OrdenDetalle::STATUS_PENDIENTE);
+
+        $orden->detalles()->create([
+            'producto_id' => $producto->id,
+            'product_name' => $producto->name,
+            'quantity' => 1,
+            'price' => 50,
+            'status' => $detalleStatus,
+        ]);
+
+        return $orden->fresh();
     }
 
     private function abrirCaja(?int $sucursalId = null, float $fondo = 0): void

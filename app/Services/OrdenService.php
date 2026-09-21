@@ -327,15 +327,21 @@ class OrdenService
         /** @var Sucursal $sucursal */
         $sucursal = $negocio->sucursales()->whereKey($resolvedSucursalId)->firstOrFail();
 
+        $desde = now()->subHours(max(0, (int) config('ordenes.kitchen_listas_hours', 8)));
+
         $ordenes = $negocio->ordenes()
             ->with($this->ordenRelations())
             ->where('sucursal_id', $resolvedSucursalId)
-            ->whereIn('status', [
-                Orden::STATUS_PENDIENTE,
-                Orden::STATUS_PAGADA,
-                Orden::STATUS_EN_COCINA,
-                Orden::STATUS_LISTA,
-            ])
+            ->where(function ($q) use ($desde) {
+                $q->whereIn('status', [
+                    Orden::STATUS_PENDIENTE,
+                    Orden::STATUS_PAGADA,
+                    Orden::STATUS_EN_COCINA,
+                ])->orWhere(function ($q) use ($desde) {
+                    $q->where('status', Orden::STATUS_LISTA)
+                        ->where('listo_at', '>=', $desde);
+                });
+            })
             ->latest('id')
             ->get();
 
