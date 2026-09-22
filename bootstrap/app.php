@@ -33,6 +33,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'master' => \App\Http\Middleware\EnsureMasterUser::class,
             'subscription.access' => \App\Http\Middleware\EnsureSubscriptionAccess::class,
+            'subscription.viewers' => \App\Http\Middleware\EnsureSubscriptionViewer::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

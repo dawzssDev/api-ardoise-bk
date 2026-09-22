@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Services\StripeService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
+use Laravel\Sanctum\Sanctum;
 use Mockery\MockInterface;
 use Stripe\Event;
 use Stripe\Exception\SignatureVerificationException;
@@ -328,6 +329,49 @@ class StripeTest extends TestCase
             ->assertJsonPath('data.plan', 'prueba')
             ->assertJsonPath('data.plan_id', 'price_1TzhHLQMCZvDbFTHiAqpsoOr')
             ->assertJsonPath('data.client_secret', 'seti_sub_secret');
+    }
+
+    public function test_list_subscribers_is_restricted_and_includes_user(): void
+    {
+        $viewer = User::factory()->create(['user_ardo_vip' => 1]);
+        $other = User::factory()->create(['user_ardo_vip' => 1]);
+        $subscriber = User::factory()->create([
+            'name' => 'Titular Test',
+            'email' => 'titular@example.com',
+            'user_ardo_vip' => 0,
+        ]);
+        $subscriber->negocio()->create([
+            'name' => 'Cafe Test',
+            'phone' => '6670000000',
+            'needs_invoice' => false,
+        ]);
+        $subscriber->subscriptions()->create([
+            'stripe_subscription_id' => 'sub_list_1',
+            'stripe_price_id' => 'price_list_1',
+            'status' => 'active',
+            'current_period_start' => now()->subDay(),
+            'current_period_end' => now()->addMonth(),
+            'access_until' => now()->addMonth(),
+            'cancel_at_period_end' => false,
+        ]);
+
+        config(['subscriptions.viewer_user_ids' => [(int) $viewer->id]]);
+
+        Sanctum::actingAs($other);
+        $this->getJson('/api/subscriptions/subscribers')
+            ->assertForbidden()
+            ->assertJsonPath('success', false);
+
+        Sanctum::actingAs($viewer);
+        $this->getJson('/api/subscriptions/subscribers')
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.subscribers.0.stripe_subscription_id', 'sub_list_1')
+            ->assertJsonPath('data.subscribers.0.status', 'active')
+            ->assertJsonPath('data.subscribers.0.user.id', $subscriber->id)
+            ->assertJsonPath('data.subscribers.0.user.email', 'titular@example.com')
+            ->assertJsonPath('data.subscribers.0.user.negocio.name', 'Cafe Test')
+            ->assertJsonMissingPath('data.subscribers.0.user.password');
     }
 
     public function test_create_subscription_without_plan_returns_422(): void

@@ -79,6 +79,8 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'subscription.access'])->grou
             ->where('invoiceId', 'in_[A-Za-z0-9_]+');
 
         Route::get('/subscriptions/plans', [SubscriptionController::class, 'plans']);
+        Route::get('/subscriptions/subscribers', [SubscriptionController::class, 'subscribers'])
+            ->middleware('subscription.viewers');
         Route::post('/subscriptions', [SubscriptionController::class, 'store']);
         Route::get('/subscriptions', [SubscriptionController::class, 'index']);
         Route::delete('/subscriptions/{stripeSubscriptionId}', [SubscriptionController::class, 'destroy']);

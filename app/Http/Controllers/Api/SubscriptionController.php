@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Subscription\CreateSubscriptionRequest;
+use App\Http\Resources\SubscriptionResource;
+use App\Models\Subscription;
 use App\Services\StripeService;
 use App\Services\SubscriptionAccessService;
 use Illuminate\Http\JsonResponse;
@@ -199,6 +201,26 @@ class SubscriptionController extends Controller
             'success' => true,
             'message' => 'ok',
             'data' => ['subscriptions' => $subscriptions],
+            'errors' => null,
+        ]);
+    }
+
+    /**
+     * Listado de todos los suscriptores (solo usuarios 17 y 24 por defecto).
+     */
+    public function subscribers(): JsonResponse
+    {
+        $subscribers = Subscription::query()
+            ->with(['user.negocio'])
+            ->latest()
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'ok',
+            'data' => [
+                'subscribers' => SubscriptionResource::collection($subscribers)->resolve(),
+            ],
             'errors' => null,
         ]);
     }
